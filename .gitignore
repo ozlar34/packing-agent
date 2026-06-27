@@ -1,0 +1,29 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Local profile data (personal/PII — keep local)
+profile.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+build/
+npm-debug.log*
+yarn-error.log*
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
