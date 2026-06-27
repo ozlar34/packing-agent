@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Trip Packing Agent</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    h1 { font-size: 1.5rem; }
+    form { display: grid; gap: 0.75rem; margin-bottom: 1.5rem; }
+    label { display: grid; gap: 0.25rem; font-size: 0.9rem; }
+    input, select, button { font: inherit; padding: 0.5rem; }
+    button { cursor: pointer; font-weight: 600; }
+    #status { color: #888; }
+    ul { list-style: none; padding: 0; }
+    li { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid #8884; }
+    .tag { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.1rem 0.45rem; border-radius: 999px; color: #fff; }
+    .tag.profile { background: #c0392b; }
+    .tag.weather { background: #2980b9; }
+    .tag.skill   { background: #27ae60; }
+    .cat { color: #888; font-size: 0.8rem; margin-left: auto; }
+  </style>
+</head>
+<body>
+  <h1>🧳 Trip Packing Agent</h1>
+  <p>Tell me about your trip — I already know your essentials.</p>
+
+  <form id="trip-form">
+    <label>Destination
+      <input name="destination" value="Reykjavik, Iceland" required />
+    </label>
+    <label>Start date
+      <input name="start_date" type="date" value="2026-07-10" required />
+    </label>
+    <label>End date
+      <input name="end_date" type="date" value="2026-07-14" required />
+    </label>
+    <label>Purpose
+      <select name="purpose">
+        <option value="leisure">Leisure</option>
+        <option value="business">Business</option>
+        <option value="beach">Beach</option>
+        <option value="outdoors">Outdoors</option>
+      </select>
+    </label>
+    <button type="submit">Generate packing list</button>
+  </form>
+
+  <p id="status"></p>
+  <h2 id="summary"></h2>
+  <ul id="results"></ul>
+
+  <script>
+    const form = document.getElementById("trip-form");
+    const status = document.getElementById("status");
+    const summary = document.getElementById("summary");
+    const results = document.getElementById("results");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      results.innerHTML = "";
+      summary.textContent = "";
+      status.textContent = "Thinking…";
+
+      const payload = Object.fromEntries(new FormData(form).entries());
+
+      try {
+        const res = await fetch("/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+        const data = await res.json();
+
+        status.textContent = "";
+        summary.textContent = `${data.trip.destination} — ${data.weather_summary}`;
+        for (const item of data.items) {
+          const li = document.createElement("li");
+          li.innerHTML =
+            `<span class="tag ${item.source}">${item.source}</span>` +
+            `<span>${item.label}</span>` +
+            `<span class="cat">${item.category}</span>`;
+          results.appendChild(li);
+        }
+      } catch (err) {
+        status.textContent = "Error: " + err.message;
+      }
+    });
+  </script>
+</body>
+</html>
