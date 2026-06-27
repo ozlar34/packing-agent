@@ -95,3 +95,23 @@ in `.env`.
 Phase 1 together: learn ADK + stand up the real agent skeleton (scaffold + one real tool
 call returning §4.4). Then: Person A = MCP server + merge + Cloud Run; Person B = the two
 skills + profile + README/video/cover/writeup (continuously, not at the end — that's 50 pts).
+
+## Current build status (update as milestones land)
+- **Milestone A — DONE** (commit `8065f0f`). Hardcoded spine works end-to-end:
+  form → ADK agent (gemini-2.5-flash, AI Studio key) → §4.4 list with the profile
+  medication. Layout: the ADK project lives in the **`packing-agent/`** subdir.
+  - `packing-agent/app/agent.py` — `build_packing_list` deterministic tool (source of
+    truth; meds + always_pack added unconditionally) + `root_agent` that calls it.
+    Weather + skill items are **stubs** (two placeholder items) to be replaced in B/C.
+  - `packing-agent/app/server.py` — **our** GCP-free local entrypoint (decision 6):
+    serves the form + `POST /generate`, returns the §4.4 list extracted from the tool's
+    `function_response` (not model prose). Run: `cd packing-agent && uv run python -m app.server`
+    → http://127.0.0.1:8000.
+  - The scaffold's `packing-agent/app/fast_api_app.py` is **GCP-coupled** (calls
+    `google.auth.default()` + Cloud Logging at import) — left untouched for the Cloud Run
+    stretch (E). Don't use it for local dev; use `app/server.py`.
+  - Clean-clone setup: `cp profile.example.json packing-agent/profile.json` (gitignored),
+    then put a real AI Studio key in `packing-agent/app/.env` (`GOOGLE_API_KEY`, gitignored).
+- **Milestone B — NEXT.** Stub `get_weather` over **stdio MCP** (`MCPToolset`, decision 5),
+  wire the agent to call it, then swap in real Open-Meteo. Replace the weather stub item in
+  `build_packing_list`. One stub at a time (golden rule).
