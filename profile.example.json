@@ -1,0 +1,8 @@
+{
+  "medications": ["daily inhaler"],
+  "always_pack": ["phone charger", "reading glasses", "passport"],
+  "preferences": {
+    "avoids": ["checked luggage"],
+    "notes": "prefers merino layers"
+  }
+}
