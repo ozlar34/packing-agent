@@ -33,9 +33,13 @@ Both came from https://adk.dev/tutorials/coding-with-ai/.
 ## Locked architecture decisions (from the design grill — do not re-litigate)
 1. **Language/runtime:** Python end-to-end. FastAPI (or Flask) serves ONE static HTML/JS
    page; no front-end build step. Both teammates know Python.
-2. **Model:** `gemini-2.5-flash` (alias `gemini-flash-latest`) via **Google AI Studio API
-   key** (`GOOGLE_API_KEY` in gitignored `.env`). NOT Vertex — stay on the AI Studio key
-   even after deploy. Constraint: maximize use of Google products.
+2. **Model:** `gemini-2.5-flash-lite` via **Google AI Studio API key** (`GOOGLE_API_KEY` in
+   gitignored `.env`). NOT Vertex — stay on the AI Studio key even after deploy. Constraint:
+   maximize use of Google products. **Switched from `gemini-2.5-flash` during Milestone B
+   (2026-06-28):** on the free tier the heavier flash models rate-limit hard (`2.5-flash` →
+   503 overload, `flash-latest`/`2.0-flash` → 429 quota), while `-lite` has open quota and ran
+   the full demo cleanly. This is a lightweight orchestration task — lite is plenty. Revisit
+   if we move to a paid tier.
 3. **Orchestration model = LLM-orchestrated, tools deterministic.** Gemini genuinely drives:
    function-calling decides to call `get_weather`, reads the `summary`, chooses the skill.
    The **merge + the "medications always included" rule are deterministic, heavily-commented
@@ -112,6 +116,21 @@ skills + profile + README/video/cover/writeup (continuously, not at the end — 
     stretch (E). Don't use it for local dev; use `app/server.py`.
   - Clean-clone setup: `cp profile.example.json packing-agent/profile.json` (gitignored),
     then put a real AI Studio key in `packing-agent/app/.env` (`GOOGLE_API_KEY`, gitignored).
-- **Milestone B — NEXT.** Stub `get_weather` over **stdio MCP** (`MCPToolset`, decision 5),
-  wire the agent to call it, then swap in real Open-Meteo. Replace the weather stub item in
-  `build_packing_list`. One stub at a time (golden rule).
+- **Milestone B — DONE** (2026-06-28). Real keyless weather over **stdio MCP**:
+  - `packing-agent/app/weather_server.py` — FastMCP stdio server exposing
+    `get_weather(destination, start_date, end_date)` → §4.3 shape. Real **Open-Meteo**
+    (geocode → daily forecast → normalized `summary` bucket + `conditions`). Forecast window
+    is ~16 days, so out-of-range dates fall back to the location's next-7-day forecast as a
+    proxy; geocode/network failure falls back to a neutral "mild" so the list never hard-fails.
+    §6.1 enforced: only destination + dates cross the tool boundary.
+  - `app/agent.py` — wired via `McpToolset` + `StdioConnectionParams` spawning
+    `python -m app.weather_server`. Instruction now: call `get_weather` first, then relay the
+    §4.3 fields into `build_packing_list`, which derives weather items deterministically
+    (`_weather_items`) and builds the human `weather_summary` string.
+  - Verified end-to-end: Reykjavik → `cold, likely precip, 6-14C` (warm jacket + waterproof);
+    Dubai → `hot, 28-42C` (sun hat + sunscreen); medication survives both. Money-demo moment ✔.
+  - Added `mcp` dep (`uv add mcp`, 1.28.1) for both the ADK MCP client and the FastMCP server.
+- **Milestone C — NEXT.** Two contrasting skill folders (`skills/beach/`, `skills/cold_weather/`)
+  + `select_skill`. Selection rule simplest first: `summary in [cold, freezing] → cold_weather`;
+  `hot`/`beach` → beach; `purpose` secondary. Replace the `general toiletries` skill stub in
+  `build_packing_list`.
