@@ -3,6 +3,39 @@
 > Newest entry on top. Read `docs/ADK_SETUP.md` (decisions + "Current build status")
 > alongside this. This file is the "where we stopped / what's next" layer.
 
+## 2026-06-28 (later) — Milestone E (parts 1–3) done: Vibe Diff + logging audit + checkbox UI
+
+### Done this session (commit `adb1cde`, NOT yet pushed)
+- **§6.5 "Vibe Diff" privacy line (part 1, highest value).** `_privacy_note()` in `agent.py`
+  derives a deterministic plain-English note inside `build_packing_list` — what crossed the tool
+  boundary (destination + dates) vs. what stayed local (meds + always-pack, named **by count only**
+  so no medication name appears in output text). Added as a new `privacy_note` field on the §4.4
+  return (`items[]` untouched — contract holds). Rendered on screen in `index.html` as a 🔒 banner.
+- **§6.3 logging audit (part 2).** Audited all demo code paths: `server.py` → `agent.py` →
+  `weather_server.py` emit **zero logging** — nothing sensitive can leak. The only logging in the
+  repo is the scaffold's Cloud Run entrypoint (`fast_api_app.py`/`telemetry.py`), which the demo
+  doesn't import and which defaults prompt capture to `NO_CONTENT`. Conclusion: clean by
+  construction → documented in README (no dead redaction helper added — nothing logs profile data).
+- **UI polish (part 3).** Real checkboxes per item; check state persisted per-destination in
+  `localStorage` (survives re-generate/reload); strike-through when done. Color-by-source tags
+  already existed. README "Privacy & security" + "Project status" updated; E marked ✅.
+- **Verified deterministically (no LLM quota):** imports clean; server boots → `/` 200; both skills
+  (cold/beach) build with no dup labels, all meds present, `privacy_note` populated, no med-name
+  leak in the note. Did NOT drive a live `/generate` (saves free-tier daily cap).
+
+### Pick up from here
+1. **Part 4 — Cloud Run deploy (BONUS, not required for judging).** Handoff to Oguz for interactive
+   `! gcloud auth login` + **enable billing**; then `agents-cli deploy` via the scaffold's
+   `fast_api_app.py` (see steps in the older entry below). Optional.
+2. **Push `main`** (this E commit is local-only) when ready.
+3. **Remaining deliverables (platform/external):** YouTube video ≤5 min, paste Kaggle Writeup +
+   select Concierge track, **Submit (not save)** before July 6 2026 23:59 PT, team merged.
+4. **Before recording:** enable billing on the AI Studio key to kill the free-tier daily cap, then
+   drive ONE real `/generate` (warm→cold swap, meds persist, Vibe Diff line shows). The one path
+   `/verify` still hasn't exercised live.
+
+---
+
 ## 2026-06-28 (late PM) — pushed + cover image/diagram + Kaggle Writeup draft
 
 ### Done this session
