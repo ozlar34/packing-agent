@@ -138,7 +138,18 @@ skills + profile + README/video/cover/writeup (continuously, not at the end — 
   - Verified end-to-end: Reykjavik → `cold, likely precip, 6-14C` (warm jacket + waterproof);
     Dubai → `hot, 28-42C` (sun hat + sunscreen); medication survives both. Money-demo moment ✔.
   - Added `mcp` dep (`uv add mcp`, 1.28.1) for both the ADK MCP client and the FastMCP server.
-- **Milestone C — NEXT.** Two contrasting skill folders (`skills/beach/`, `skills/cold_weather/`)
-  + `select_skill`. Selection rule simplest first: `summary in [cold, freezing] → cold_weather`;
-  `hot`/`beach` → beach; `purpose` secondary. Replace the `general toiletries` skill stub in
-  `build_packing_list`.
+- **Milestone C — DONE** (2026-06-28). Two contrasting trip skills + progressive disclosure:
+  - `packing-agent/skills/cold_weather/SKILL.md` + `packing-agent/skills/beach/SKILL.md` —
+    each has human guidance prose + a `## Packing items` list (`- <label> :: <category>`).
+  - `app/agent.py` — `_parse_skill_items` (deterministic parse of the items list, decision 4:
+    no LLM mis-parse) + `_load_skill(name)` (allowlist `SKILL_NAMES`, reads ONLY the chosen
+    `skills/<name>/SKILL.md`, returns guidance + items, degrades to `{error}` not a crash).
+    New agent tool `select_skill(name)` = the progressive-disclosure surface (agent gets the
+    guidance as rationale). `build_packing_list` gained a `skill_name` param and re-reads the
+    items itself via `_load_skill` — the model only threads the short skill *name*, never the
+    item list. The `general toiletries` stub is gone.
+  - Selection rule (agent instruction): `summary in [cold, freezing] → cold_weather`;
+    `summary == hot` OR `purpose == beach` → beach; `purpose` as secondary hint otherwise.
+  - Verified: deterministic core (both skills + unknown-name fallback + cold/beach builds) and
+    ONE live run — Reykjavik leisure → agent called get_weather → select_skill → build_packing_list,
+    loaded cold_weather items, medication survived. Visible cold↔beach switch ✔.

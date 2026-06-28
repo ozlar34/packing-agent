@@ -33,6 +33,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # reasoning time; the UI and external tools never see it.
 PROFILE_PATH = PROJECT_ROOT / "profile.json"
 
+# Trip-archetype skills live in skills/<name>/SKILL.md (decision 4). The set is a
+# fixed allowlist: select_skill only ever reads one of these folders, so the LLM
+# cannot make us read an arbitrary path. Keep this in sync with the skills/ dir.
+SKILLS_DIR = PROJECT_ROOT / "skills"
+SKILL_NAMES = ("cold_weather", "beach")
+
 
 def _load_profile() -> dict:
     """Load the local user profile. Returns empty sections if absent so the
@@ -41,6 +47,75 @@ def _load_profile() -> dict:
         return json.loads(PROFILE_PATH.read_text())
     except FileNotFoundError:
         return {"medications": [], "always_pack": [], "preferences": {}}
+
+
+def _parse_skill_items(skill_text: str) -> list[dict]:
+    """Deterministically parse the `## Packing items` list out of a SKILL.md.
+
+    The item list is parsed by fixed Python (decision 4: "no LLM mis-parse"), NOT
+    by the model. Convention: under the `## Packing items` heading, each item is a
+    bullet `- <label> :: <category>`. Anything outside that section (the human
+    guidance prose) is ignored here — it is surfaced to the model separately as
+    rationale by select_skill.
+    """
+    items: list[dict] = []
+    in_items = False
+    for raw in skill_text.splitlines():
+        line = raw.strip()
+        if line.startswith("## "):
+            # Enter the items section on its heading; any other H2 ends it.
+            in_items = line[3:].strip().lower() == "packing items"
+            continue
+        if in_items and line.startswith("- ") and "::" in line:
+            label, _, category = line[2:].partition("::")
+            items.append({
+                "label": label.strip(),
+                "source": "skill",
+                "category": category.strip(),
+            })
+    return items
+
+
+def _load_skill(name: str) -> dict:
+    """Load ONE trip-archetype skill folder (progressive disclosure, decision 4).
+
+    Reads only skills/<name>/SKILL.md and returns both the human guidance prose
+    (rationale for the model) and the deterministically-parsed item list. `name`
+    is validated against the SKILL_NAMES allowlist so an unexpected value can never
+    turn into an arbitrary file read. Returns an {"error": ...} dict on bad input
+    or a missing file so neither tool ever hard-fails the run.
+    """
+    if name not in SKILL_NAMES:
+        return {"error": f"unknown skill '{name}'; choose one of {list(SKILL_NAMES)}"}
+    skill_path = SKILLS_DIR / name / "SKILL.md"
+    try:
+        text = skill_path.read_text()
+    except FileNotFoundError:
+        return {"error": f"skill '{name}' has no SKILL.md"}
+    return {
+        "name": name,
+        "guidance": text,
+        "items": _parse_skill_items(text),
+    }
+
+
+def select_skill(name: str) -> dict:
+    """Load the trip-archetype skill the agent has chosen for this trip.
+
+    This is the agent-facing progressive-disclosure tool (decision 4): the agent
+    decides which archetype fits the forecast/purpose, calls select_skill with its
+    name, and gets back the skill's guidance (so the model can reason about it) and
+    the list of item labels it contributes. The agent then passes the SAME name to
+    build_packing_list, which re-reads the items deterministically — so only the
+    short skill *name* is ever threaded through the model, never the item list.
+
+    Args:
+        name: The skill to load. One of: cold_weather | beach.
+
+    Returns:
+        {name, guidance, items[]} for a known skill, or {error} otherwise.
+    """
+    return _load_skill(name)
 
 
 def _weather_items(summary: str, precipitation: str, conditions: list[str]) -> list[dict]:
@@ -81,6 +156,7 @@ def build_packing_list(
     temp_c_max: float,
     precipitation: str,
     conditions: list[str],
+    skill_name: str,
 ) -> dict:
     """Build a personalized packing list for a trip.
 
@@ -89,10 +165,11 @@ def build_packing_list(
     list itself — especially the medications — is assembled by this Python code,
     never left to the model. That is what makes "it knows you" trustworthy.
 
-    MILESTONE B: weather items are now derived from the real forecast (the agent
-    relays the §4.3 fields from get_weather). The trip-archetype skill is still
-    stubbed with one placeholder item; Milestones C–D replace it with the real
-    select_skill + three-source merge.
+    MILESTONE C: weather items are derived from the real forecast and skill items
+    come from the trip-archetype skill the agent chose (skill_name). Items are read
+    back from the SKILL.md deterministically here — the model only passes the skill
+    *name* — so the agent's choice can't corrupt the actual item list. Milestone D
+    adds the real three-source dedupe on top.
 
     Args:
         destination: Free-text place name, e.g. "Reykjavik, Iceland".
@@ -104,6 +181,8 @@ def build_packing_list(
         temp_c_max: Forecast max temperature in °C.
         precipitation: §4.3 precipitation likelihood, e.g. "likely" | "none".
         conditions: §4.3 notable conditions, e.g. ["rain", "wind"].
+        skill_name: The trip-archetype skill chosen via select_skill, whose items
+            are added to the list. One of: cold_weather | beach.
 
     Returns:
         A packing list in the §4.4 shape: {trip, weather_summary, items[]}, where
@@ -116,8 +195,12 @@ def build_packing_list(
     # --- Weather-driven items (Milestone B): derived from the real forecast. ---
     items.extend(_weather_items(weather_summary, precipitation, conditions))
 
-    # --- Stub: skill-driven items (Milestone C replaces this with select_skill) ---
-    items.append({"label": "general toiletries", "source": "skill", "category": "toiletries"})
+    # --- Skill-driven items (Milestone C): from the agent's chosen trip skill. ---
+    # Re-read the chosen skill's items here (deterministically) rather than trust
+    # the model to relay them. A bad/unknown name yields no skill items rather than
+    # crashing — the weather + profile list still renders.
+    skill = _load_skill(skill_name)
+    items.extend(skill.get("items", []))
 
     # --- Profile items: the demo headline. Added UNCONDITIONALLY, every trip. ---
     # EVERY medication is always included regardless of destination or purpose.
@@ -169,13 +252,21 @@ root_agent = Agent(
         "trip details (destination, start_date, end_date, purpose):\n"
         "1. FIRST call get_weather with the destination, start_date, and end_date "
         "to fetch the forecast.\n"
-        "2. THEN call build_packing_list, passing the original trip details AND the "
-        "forecast fields you got back from get_weather (weather_summary=summary, "
-        "temp_c_min, temp_c_max, precipitation, conditions).\n"
-        "3. Briefly confirm the list is ready.\n"
+        "2. THEN choose ONE trip-archetype skill and call select_skill with its "
+        "name. Selection rule (apply in order):\n"
+        "   - if the forecast summary is 'cold' or 'freezing' -> 'cold_weather'\n"
+        "   - else if the summary is 'hot' OR the purpose is 'beach' -> 'beach'\n"
+        "   - otherwise use 'purpose' as a secondary hint: outdoors/leisure in warm "
+        "weather lean 'beach', anything clearly cold leans 'cold_weather'. When "
+        "unsure, pick 'beach' for warm/mild trips and 'cold_weather' for cool ones.\n"
+        "3. THEN call build_packing_list, passing the original trip details, the "
+        "forecast fields from get_weather (weather_summary=summary, temp_c_min, "
+        "temp_c_max, precipitation, conditions), AND skill_name = the skill you "
+        "selected in step 2.\n"
+        "4. Briefly confirm the list is ready.\n"
         "Do not invent packing items yourself — the tools are the source of truth."
     ),
-    tools=[_weather_toolset, build_packing_list],
+    tools=[_weather_toolset, select_skill, build_packing_list],
 )
 
 app = App(

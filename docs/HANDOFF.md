@@ -3,6 +3,49 @@
 > Newest entry on top. Read `docs/ADK_SETUP.md` (decisions + "Current build status")
 > alongside this. This file is the "where we stopped / what's next" layer.
 
+## 2026-06-28 (PM) — Milestone C complete (trip skills + progressive disclosure)
+
+### Situation
+Milestone C is DONE and verified. The agent now picks ONE of two contrasting trip skills and
+its items flow into the list — a visible cold↔beach switch. **D (the merge) is next.**
+
+### Changes
+- New `packing-agent/skills/cold_weather/SKILL.md` + `.../beach/SKILL.md` — guidance prose +
+  a `## Packing items` list, each bullet `- <label> :: <category>`.
+- `app/agent.py`:
+  - `_parse_skill_items` — deterministic parse of the items list (decision 4: no LLM mis-parse).
+  - `_load_skill(name)` — allowlist (`SKILL_NAMES = (cold_weather, beach)`), reads ONLY the one
+    chosen `skills/<name>/SKILL.md` (progressive disclosure), returns `{name, guidance, items}`
+    or `{error}` (never crashes on bad name / missing file).
+  - `select_skill(name)` — new agent-facing tool = the progressive-disclosure surface; returns
+    guidance (rationale for the model) + items.
+  - `build_packing_list` gained `skill_name`; it re-reads items via `_load_skill` so only the
+    short skill *name* is threaded through the model, never the item list. `general toiletries`
+    stub removed.
+  - Instruction: 3-step → 4-step (get_weather → select_skill → build_packing_list w/ skill_name).
+    Rule: `summary in [cold,freezing] → cold_weather`; `hot` OR `purpose==beach` → beach;
+    purpose secondary.
+
+### Verified
+- Deterministic (no quota): both skills parse; unknown name → graceful no-items; cold build →
+  cold_weather items, beach build → beach items; medication in both.
+- ONE live generate (quota-aware): Reykjavik leisure → agent chained get_weather → select_skill
+  → build_packing_list, loaded cold_weather items, `daily inhaler` survived. ✔
+
+### Pick up from here — Milestone D (the merge, the agentic core)
+1. Re-read spec §5.4 + decision 3. The three sources already land in `build_packing_list`'s
+   `items` (weather via `_weather_items`, skill via `_load_skill`, profile meds+always_pack).
+2. Add the **deterministic dedupe by label** + keep the meds-always rule explicit and HEAVILY
+   commented (that's where impl points are won). Watch real overlaps: beach skill vs weather
+   both can imply sun items; cold skill vs weather both imply warm layers.
+3. Done-when: no duplicate labels in output; every medication still unconditionally present.
+
+### Still not done
+- No `README.md` yet (20 pts). E (security hardening → Cloud Run → polish) pending. Free-tier
+  daily quota still the live-demo risk — enable billing before the demo (see constraint below).
+
+---
+
 ## 2026-06-28 (PM) — B re-verified + hardening + model switch
 
 ### What happened
