@@ -44,39 +44,7 @@ and a template cannot.
 
 Only the agent is "smart"; everything else is a tool or a data source it orchestrates.
 
-```
-        +-----------------------------+        +-----------------------------+
-        |          Web UI             |        |        User profile         |
-        | questionnaire + checklist   |        |  meds, essentials, prefs    |
-        |  (destination, dates,       |        |  (profile.json)             |
-        |   purpose)                  |        |                             |
-        +--------------+--------------+        +--------------+--------------+
-                       |                                      |
-                       | trip input (JSON)                    | read at runtime
-                       v                                      v
-        +-------------------------------------------------------------------+
-        |                       Core agent (ADK)                            |
-        |  reads inputs -> calls weather tool -> selects ONE skill          |
-        |  -> merges profile items + weather items + skill items            |
-        |  CONCEPT 1: Agent (ADK)             app/agent.py                   |
-        +----------------+----------------------------+---------------------+
-                         |                            |
-            calls (MCP)  |                            | loads on demand
-                         v                            v
-        +-----------------------------+   +-----------------------------+
-        |     Weather MCP server      |   |   Trip skills (Agents CLI)  |
-        |  get_weather(dest, dates)   |   |  beach / cold_weather       |
-        |  CONCEPT 2: MCP Server      |   |  CONCEPT 3: Agent Skills    |
-        |  app/weather_server.py      |   |  skills/<name>/SKILL.md     |
-        +-----------------------------+   +-----------------------------+
-                         \                            /
-                          \                          /
-                           v                        v
-                    +-------------------------------------+
-                    |        Rendered packing list        |
-                    |   personalized, checkable output    |
-                    +-------------------------------------+
-```
+![Architecture: Web UI + Profile feed the ADK agent, which calls the weather MCP server and selects a trip skill, then merges all three sources into the rendered packing list](docs/assets/architecture.png)
 
 **Request flow:** form → agent → `get_weather` (MCP) → `select_skill` → `build_packing_list` →
 rendered §4.4 list.
