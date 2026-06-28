@@ -71,7 +71,16 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+        if (!res.ok) {
+          // Error bodies aren't always JSON (e.g. an unhandled 500 returns the
+          // plain text "Internal Server Error"). Read as text first, then try to
+          // pull a {detail} out of it — so the real message shows, never a JSON
+          // parse error that hides what actually went wrong.
+          const body = await res.text();
+          let message = res.statusText;
+          try { message = JSON.parse(body).detail || message; } catch {}
+          throw new Error(message);
+        }
         const data = await res.json();
 
         status.textContent = "";

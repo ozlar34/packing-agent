@@ -33,13 +33,21 @@ Both came from https://adk.dev/tutorials/coding-with-ai/.
 ## Locked architecture decisions (from the design grill — do not re-litigate)
 1. **Language/runtime:** Python end-to-end. FastAPI (or Flask) serves ONE static HTML/JS
    page; no front-end build step. Both teammates know Python.
-2. **Model:** `gemini-2.5-flash-lite` via **Google AI Studio API key** (`GOOGLE_API_KEY` in
+2. **Model:** `gemini-2.5-flash` via **Google AI Studio API key** (`GOOGLE_API_KEY` in
    gitignored `.env`). NOT Vertex — stay on the AI Studio key even after deploy. Constraint:
-   maximize use of Google products. **Switched from `gemini-2.5-flash` during Milestone B
-   (2026-06-28):** on the free tier the heavier flash models rate-limit hard (`2.5-flash` →
-   503 overload, `flash-latest`/`2.0-flash` → 429 quota), while `-lite` has open quota and ran
-   the full demo cleanly. This is a lightweight orchestration task — lite is plenty. Revisit
-   if we move to a paid tier.
+   maximize use of Google products.
+   **Model history (free tier is the real constraint, not capability):**
+   - Milestone B (2026-06-28 AM): moved `gemini-2.5-flash` → `gemini-2.5-flash-lite` because
+     the heavier models were rate-limiting per-minute under load (`2.5-flash` → 503 overload,
+     `flash-latest`/`2.0-flash` → 429).
+   - Same day (PM): **moved back to `gemini-2.5-flash`.** flash-lite's free-tier **daily** cap
+     is only **20 requests/day** (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`), and a
+     day of testing exhausted it — each Generate is ~2–3 model calls, so ~7 clicks burns it.
+     Daily quota is **per-project-per-model**, so each model has its own bucket; on 2026-06-28
+     `2.0-flash` and `flash-latest` were also exhausted but `2.5-flash` still had headroom and
+     ran the full path cleanly. Lesson: the bottleneck is per-day free quota, not model choice.
+   **For a reliable live demo, enable billing on the AI Studio key** (pay-as-you-go; flash is
+   ~fractions of a cent/request) — that removes the free-tier daily cap entirely. Revisit then.
 3. **Orchestration model = LLM-orchestrated, tools deterministic.** Gemini genuinely drives:
    function-calling decides to call `get_weather`, reads the `summary`, chooses the skill.
    The **merge + the "medications always included" rule are deterministic, heavily-commented

@@ -3,6 +3,36 @@
 > Newest entry on top. Read `docs/ADK_SETUP.md` (decisions + "Current build status")
 > alongside this. This file is the "where we stopped / what's next" layer.
 
+## 2026-06-28 (PM) — B re-verified + hardening + model switch
+
+### What happened
+Re-verified Milestone B end-to-end, hit the free-tier quota mid-testing, fixed two
+error-handling bugs it surfaced, and switched the model. **B is still DONE; Milestone C is
+still next** (pickup steps unchanged — see the entry below).
+
+### Changes (this session)
+- **Model `gemini-2.5-flash-lite` → `gemini-2.5-flash`** (`app/agent.py`). flash-lite's
+  free-tier **daily** cap is only **20 req/day**
+  (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`); a day of testing exhausted it
+  (~2–3 model calls per Generate → ~7 clicks burns it). Tested live: `2.0-flash`/`flash-latest`
+  were also exhausted that day, `2.5-flash` had headroom and ran the full path cleanly. Decision
+  2 in `docs/ADK_SETUP.md` updated with the model history + lesson.
+- **Front-end error handling** (`app/static/index.html`): the catch called `res.json()` on the
+  error body, but an unhandled 500 returns plain-text "Internal Server Error" → threw
+  `Unexpected token 'I'…` that masked the real error. Now reads the body as text and parses JSON
+  only when it is JSON, so the real message shows.
+- **Server 429 mapping** (`app/server.py`): `/generate` catches `google.genai.errors.ClientError`;
+  on `code==429` returns a clean JSON 429 with an honest detail (per-minute cap clears in ~1 min;
+  per-day resets at midnight Pacific). Non-429 ClientErrors re-raise (still 500) so real faults
+  aren't masked — verified via a TestClient monkeypatch (429 → clean JSON, 400 → 500).
+
+### Known constraint (NOT a bug)
+The bottleneck is free-tier **daily** quota, per-project-per-model — `2.5-flash` can also be
+exhausted by heavy testing. **Durable fix before the demo: enable billing on the AI Studio key**
+(pay-as-you-go; flash ≈ fractions of a cent/request) → removes the daily cap. Not yet done.
+
+---
+
 ## 2026-06-28 — Milestone B complete (real MCP weather)
 
 ### Situation

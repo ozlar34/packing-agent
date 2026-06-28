@@ -161,7 +161,7 @@ _weather_toolset = McpToolset(
 root_agent = Agent(
     name="root_agent",
     model=Gemini(
-        model="gemini-2.5-flash-lite",
+        model="gemini-2.5-flash",
         retry_options=types.HttpRetryOptions(attempts=3),
     ),
     instruction=(

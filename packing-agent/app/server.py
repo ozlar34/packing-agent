@@ -20,6 +20,7 @@ from google.adk.artifacts import InMemoryArtifactService
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
+from google.genai.errors import ClientError
 from pydantic import BaseModel
 
 from app.agent import app as adk_app
@@ -88,12 +89,27 @@ async def generate(trip: TripInput) -> dict:
     )
 
     packing_list: dict | None = None
-    async for event in _runner.run_async(
-        user_id=USER_ID, session_id=session_id, new_message=message
-    ):
-        found = _extract_packing_list(event)
-        if found is not None:
-            packing_list = found
+    try:
+        async for event in _runner.run_async(
+            user_id=USER_ID, session_id=session_id, new_message=message
+        ):
+            found = _extract_packing_list(event)
+            if found is not None:
+                packing_list = found
+    except ClientError as ce:
+        # Free-tier Gemini caps requests/minute; ADK surfaces that as a
+        # ClientError with code 429. Translate it into a clean JSON 429 so the
+        # UI shows a helpful message instead of an unhandled 500. Any other
+        # ClientError is a real fault — re-raise and let it 500.
+        if ce.code == 429:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "Free-tier Gemini quota hit. The per-minute cap clears in ~1 min; "
+                    "the per-day cap resets at midnight Pacific. Wait and retry."
+                ),
+            ) from ce
+        raise
 
     if packing_list is None:
         raise HTTPException(
