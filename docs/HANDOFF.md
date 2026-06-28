@@ -3,6 +3,69 @@
 > Newest entry on top. Read `docs/ADK_SETUP.md` (decisions + "Current build status")
 > alongside this. This file is the "where we stopped / what's next" layer.
 
+## 2026-06-28 (late PM) — pushed + cover image/diagram + Kaggle Writeup draft
+
+### Done this session
+- **Pushed `main` to `origin/main`.** Repo is now public/clean-cloneable for judges; origin
+  is current through this session's commits.
+- **Architecture diagram image (spec §9.4) — `docs/assets/architecture.{svg,png}`.** A
+  version-controlled SVG source rendered to a 1600x900 PNG via Chrome headless. It is accurate to
+  the actual code (agent.py / weather_server.py / skills) and **doubles as the required Media
+  Gallery cover image** (16:9, branded title card + flow). The README's ASCII diagram was replaced
+  by an embed of this PNG (component table + request-flow line retained). Commit `4a05eed`.
+  - To re-render after editing the SVG: `cd docs/assets && "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --disable-gpu --screenshot=architecture.png --window-size=1600,900 "file://$PWD/architecture.svg"`
+- **Kaggle Writeup draft — `docs/KAGGLE_WRITEUP.md`.** Paste-ready, Concierge track, title +
+  subtitle, ~2,080 words (well under the 2,500 limit). Covers problem, solution, why-agents,
+  architecture, the 4 concepts, the deterministic merge, the privacy boundary, and the build
+  journey. Commit `437ab2b`. **Not yet pasted/submitted on the Kaggle platform** — that's a
+  platform action for Oguz.
+
+### Pick up from here — Milestone E (Oguz wants ALL four; do next session)
+Spine + A–D + README + diagram + writeup are solid, so E is the remaining build work. Order by
+value (do top-down; first two are fully doable locally, no external accounts):
+1. **§6.5 Privacy summary line ("Vibe Diff") — HIGHEST value, do first.** Have the agent/UI show a
+   plain-English note before/with the list, e.g. *"Used your destination and dates for weather;
+   kept your medications local and added them to your list privately."* Makes the 4th concept
+   (security) visible on screen and is great for the video. Cleanest spot: derive it
+   deterministically in `build_packing_list` (it knows what crossed the tool boundary vs. what came
+   from profile) and add a field to the §4.4 return, then render it in `app/static/index.html`.
+   Watch the data contract: adding a field to the agent→UI shape is fine, but keep `items[]` intact.
+2. **§6.3 Logging audit + redaction.** Grep all code paths (`app/server.py`, `app/agent.py`,
+   `app/weather_server.py`) for any logging that could touch the profile/medications. Add a small
+   redaction helper that replaces medication strings with `[[MEDICATION]]` if anything logs profile
+   data; otherwise document that nothing sensitive is logged. Mostly an audit — likely already clean.
+3. **UI polish.** Checkbox state persistence, cleaner styling, color-code items by `source`
+   (profile/weather/skill) so "it knows you" reads at a glance. Lowest-priority per spec §5.5.
+4. **Cloud Run deploy (bonus, NOT required for judging).** Needs: a GCP project, **billing
+   enabled**, and **interactive `gcloud auth`** (Oguz runs the auth step — `! gcloud auth login`).
+   The scaffold's `app/fast_api_app.py` (kept since Milestone A, GCP-coupled) is the deploy
+   entrypoint; our local `app/server.py` stays for local dev. Use `agents-cli deploy` /
+   `scaffold enhance` (see `packing-agent/AGENTS.md`). Document reproduction steps in the README.
+
+### Still-pending deliverables (mostly external/platform)
+- **YouTube video ≤5 min** (spec §10, worth 10 pts) — script + record. Cover: problem, why-agents,
+  architecture (show `docs/assets/architecture.png` on screen), the money demo (warm→cold swap,
+  meds persist, one skill switch), the build + privacy (§6.1 + §6.3).
+- **Cover image** — DONE: use `docs/assets/architecture.png` for the Media Gallery.
+- **Kaggle Writeup** — DRAFTED (`docs/KAGGLE_WRITEUP.md`); paste into the platform + select Concierge.
+- **Submit (not save)** before **July 6 2026 23:59 PT**, **team merged** on the platform.
+
+### Live-demo gate (unchanged, blocks the video)
+Before recording: **enable billing on the AI Studio key** to kill the free-tier daily cap, then
+drive ONE real `/generate` end-to-end (warm→cold destination swap, confirm meds persist) — the one
+path `/verify` has left unrun. Per-day free cap = ~3 model calls/Generate.
+
+### Paste-ready resume prompt (next session)
+> Read `docs/HANDOFF.md` (top entry) and `AGENTS.md` first. Status: A–D + README + architecture
+> diagram/cover image + Kaggle Writeup draft all done, committed, and pushed to origin. Now build
+> **Milestone E** — all four parts, in value order: (1) §6.5 privacy-summary line, (2) §6.3 logging
+> audit + redaction, (3) UI polish, (4) Cloud Run deploy (bonus; I'll run `gcloud auth` and enable
+> billing — that part's a handoff). Keep it runnable end-to-end; one stub at a time. The §4.4
+> agent→UI contract may gain a privacy-summary field but `items[]` stays intact. App runs via
+> `cd packing-agent && uv run python -m app.server` → http://127.0.0.1:8000.
+
+---
+
 ## 2026-06-28 (PM) — README.md written + verified (20-pt deliverable)
 
 ### Situation
