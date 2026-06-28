@@ -3,6 +3,44 @@
 > Newest entry on top. Read `docs/ADK_SETUP.md` (decisions + "Current build status")
 > alongside this. This file is the "where we stopped / what's next" layer.
 
+## 2026-06-28 (PM) — README.md written + verified (20-pt deliverable)
+
+### Situation
+Root `README.md` is DONE — the 20-pt deliverable per spec §9. Covers all 8 §9 points: problem,
+"it knows you" solution, why-agents, architecture (ASCII diagram + component table), the 4 course
+concepts mapped to exact file paths, verified clean-clone setup, §6 privacy/security, and an honest
+A–D-done / E-pending status. Bold "no secrets committed" reminder sits near the top. The scaffold's
+`packing-agent/README.md` (generic, auto-generated) was left untouched.
+
+### Verified (/verify, no LLM quota burned)
+Ran the documented launch verbatim: `cd packing-agent && uv run python -m app.server` → fresh
+uvicorn bound to `http://127.0.0.1:8000`, GET `/` → 200 serving the "Trip Packing Agent" UI;
+`/static/index.html` → 200. Setup-step source files exist (`profile.example.json`, `.env.example`
+at root; targets gitignored). MCP weather server auto-spawns (single command, no 2nd terminal).
+Deliberately did NOT drive `/generate` (live Gemini, burns free-tier daily cap) — generate-path
+claims rest on the A–D verifications below.
+
+### Decisions / notes
+- README lives at REPO ROOT (the deliverable); `cp` sources are root-level, targets are
+  `packing-agent/profile.json` + `packing-agent/app/.env` (where `server.py` load_dotenv reads).
+- ASCII architecture diagram used instead of an exported image (version-controlled, accurate). Spec
+  §9.4 nominally wants an image — a real diagram image is still TODO for README polish + the
+  required cover image / Media Gallery.
+
+### Pick up from here
+1. **Still pending deliverables:** YouTube video ≤5 min (§10), cover image, Kaggle Writeup (≤2,500
+   words, Concierge track), then Submit (not save) before July 6 2026 23:59 PT, team merged.
+2. **Milestone E stretch** (only if time): security hardening (§6) → Cloud Run deploy → polish.
+3. **Before any live demo/recording:** enable billing on the AI Studio key to kill the free-tier
+   daily cap (the recurring live-demo risk). Then drive ONE real `/generate` end-to-end (warm→cold
+   destination swap, meds persist) to confirm the generate path — the one thing /verify left unrun.
+
+### Git state
+- `main` is ahead of `origin/main` by 5 (incl. this README+HANDOFF commit) — NOT pushed (Oguz to
+  decide). `profile.json` + `app/.env` remain gitignored/local, by design.
+
+---
+
 ## 2026-06-28 (PM) — Milestone D complete (the merge — the agentic core)
 
 ### Situation
