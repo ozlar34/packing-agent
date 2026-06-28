@@ -15,11 +15,15 @@
     #status { color: #888; }
     ul { list-style: none; padding: 0; }
     li { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid #8884; }
+    li input[type=checkbox] { width: 1.1rem; height: 1.1rem; flex: none; cursor: pointer; }
+    li.done .label { text-decoration: line-through; color: #888; }
     .tag { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.1rem 0.45rem; border-radius: 999px; color: #fff; }
     .tag.profile { background: #c0392b; }
     .tag.weather { background: #2980b9; }
     .tag.skill   { background: #27ae60; }
     .cat { color: #888; font-size: 0.8rem; margin-left: auto; }
+    #privacy { font-size: 0.85rem; color: #555; background: #2980b915; border-left: 3px solid #2980b9; padding: 0.6rem 0.8rem; border-radius: 4px; margin: 0.5rem 0 1rem; }
+    #privacy::before { content: "🔒 "; }
   </style>
 </head>
 <body>
@@ -49,18 +53,22 @@
 
   <p id="status"></p>
   <h2 id="summary"></h2>
+  <p id="privacy" hidden></p>
   <ul id="results"></ul>
 
   <script>
     const form = document.getElementById("trip-form");
     const status = document.getElementById("status");
     const summary = document.getElementById("summary");
+    const privacy = document.getElementById("privacy");
     const results = document.getElementById("results");
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       results.innerHTML = "";
       summary.textContent = "";
+      privacy.hidden = true;
+      privacy.textContent = "";
       status.textContent = "Thinking…";
 
       const payload = Object.fromEntries(new FormData(form).entries());
@@ -85,12 +93,32 @@
 
         status.textContent = "";
         summary.textContent = `${data.trip.destination} — ${data.weather_summary}`;
+        if (data.privacy_note) {
+          // §6.5 "Vibe Diff": the agent's plain-English account of what it sent
+          // out vs. what it kept local — makes the privacy story visible on screen.
+          privacy.textContent = data.privacy_note;
+          privacy.hidden = false;
+        }
+        // Check state is persisted per destination so ticking off items survives a
+        // re-generate or page reload (localStorage; no backend, matches the no-DB scope).
+        const checkKey = `packed:${data.trip.destination}`;
+        const checked = JSON.parse(localStorage.getItem(checkKey) || "{}");
         for (const item of data.items) {
           const li = document.createElement("li");
-          li.innerHTML =
+          const box = document.createElement("input");
+          box.type = "checkbox";
+          box.checked = !!checked[item.label];
+          if (box.checked) li.classList.add("done");
+          box.addEventListener("change", () => {
+            li.classList.toggle("done", box.checked);
+            checked[item.label] = box.checked;
+            localStorage.setItem(checkKey, JSON.stringify(checked));
+          });
+          li.appendChild(box);
+          li.insertAdjacentHTML("beforeend",
             `<span class="tag ${item.source}">${item.source}</span>` +
-            `<span>${item.label}</span>` +
-            `<span class="cat">${item.category}</span>`;
+            `<span class="label">${item.label}</span>` +
+            `<span class="cat">${item.category}</span>`);
           results.appendChild(li);
         }
       } catch (err) {

@@ -146,6 +146,39 @@ def _weather_items(summary: str, precipitation: str, conditions: list[str]) -> l
     return items
 
 
+def _privacy_note(destination: str, med_count: int, always_count: int) -> str:
+    """Build the §6.5 "Vibe Diff" — a plain-English line of what crossed the tool
+    boundary vs. what was deliberately kept private (Milestone E, the 4th concept).
+
+    This is derived deterministically right here in the merge because this code is
+    the one place that KNOWS both halves of the privacy story: exactly what we sent
+    to the external weather tool (only destination + dates — §6.1 data minimization)
+    and exactly what we pulled from the local profile without it ever leaving the
+    machine (the meds + always-pack counts). Surfacing it makes the security concept
+    visible on screen instead of buried in the architecture. We name only counts,
+    never the medications themselves (§6.3 — nothing sensitive in the output text).
+    """
+    # What left the machine: ONLY the trip's destination + dates, to the weather tool.
+    sent = f"Sent only your destination ({destination}) and travel dates to the weather service."
+    # What stayed local: the profile, surfaced as counts so no medication name leaks.
+    kept_bits = []
+    if med_count:
+        kept_bits.append(f"{med_count} medication{'s' if med_count != 1 else ''}")
+    if always_count:
+        kept_bits.append(
+            f"{always_count} always-pack item{'s' if always_count != 1 else ''}"
+        )
+    if kept_bits:
+        kept = (
+            "Your profile never left this machine — read it locally and added "
+            + " and ".join(kept_bits)
+            + " to your list privately."
+        )
+    else:
+        kept = "Your profile stayed local and was never sent anywhere."
+    return f"{sent} {kept}"
+
+
 def _normalize_label(label: str) -> str:
     """Canonical key for collision detection.
 
@@ -299,6 +332,10 @@ def build_packing_list(
         },
         "weather_summary": display_summary,
         "items": items,
+        # §6.5 "Vibe Diff": the privacy story for THIS run, in plain English. A new
+        # field on the §4.4 shape — items[] is untouched, so existing consumers and
+        # the data contract still hold.
+        "privacy_note": _privacy_note(destination, len(med_items), len(always_items)),
     }
 
 

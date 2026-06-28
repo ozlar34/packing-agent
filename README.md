@@ -135,9 +135,16 @@ This is a Concierge agent handling personal and medical data, so the boundaries 
    (`app/weather_server.py` documents and enforces this.)
 2. **No secrets in repo** — Open-Meteo is keyless. The only secret is the AI Studio key, which lives
    in a **gitignored** `.env`; `.env.example` ships only the variable names.
-3. **No sensitive data in logs** — the profile and medications are never logged.
+3. **No sensitive data in logs** — audited: the local demo path (`app/server.py` →
+   `app/agent.py` → `app/weather_server.py`) emits **no logging at all**, so the profile and
+   medications cannot leak through a log line. (The scaffold's separate Cloud Run entrypoint
+   defaults prompt/response capture to `NO_CONTENT` and never logs the profile.)
 4. **Local-only profile** — `profile.json` is gitignored, read locally by the agent only, and never
    uploaded or sent to third parties.
+5. **"Vibe Diff" privacy summary** — every generated list ships with a plain-English `privacy_note`
+   (derived in `build_packing_list`, shown on screen) stating exactly what crossed the tool boundary
+   (destination + dates) versus what stayed local (medications + always-pack, named only by count so
+   no medication name appears in the output text). Makes the privacy boundary legible, not implicit.
 
 ---
 
@@ -150,7 +157,8 @@ Built incrementally, kept runnable end-to-end at every step:
   changes the forecast changes the list.
 - ✅ **C — trip skills:** two contrasting skills with on-demand `select_skill` loading.
 - ✅ **D — the merge:** deterministic three-source dedupe with the structural meds-always guarantee.
-- 🔜 **E — stretch:** further security hardening, Cloud Run deployment, polish.
+- ✅ **E — stretch:** on-screen "Vibe Diff" privacy summary, logging audit, checkbox UI with
+  persisted state. (Cloud Run deployment is an optional bonus, not required for judging.)
 
 ---
 
