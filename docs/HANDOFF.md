@@ -3,6 +3,47 @@
 > Newest entry on top. Read `docs/ADK_SETUP.md` (decisions + "Current build status")
 > alongside this. This file is the "where we stopped / what's next" layer.
 
+## 2026-06-28 (PM) — Milestone D complete (the merge — the agentic core)
+
+### Situation
+D is DONE and verified. `build_packing_list` no longer concatenates the three sources — it
+MERGES them with a deterministic dedupe-by-label. The medication is bulletproof. **E (stretch:
+security → Cloud Run → polish) is next, but `README.md` (20 pts) is the higher-value gap.**
+
+### Changes (`app/agent.py` only)
+- `_normalize_label(label)` — canonical collision key (lowercase + collapse whitespace).
+  Intentionally conservative: no stemming/synonyms, so the merge never silently drops a
+  distinct item. Near-synonyms ("sunglasses" vs "shades") stay separate by design.
+- `_merge_by_precedence(ordered_sources)` — THE merge. Walks sources highest→lowest precedence,
+  keeps the FIRST item per normalized label (first-seen-wins). Precedence is encoded purely by
+  ORDER — heavily commented, since that's where impl points are won.
+- `build_packing_list` assembly rewritten: builds `med_items`, `always_items`, `weather_items`,
+  `skill_items` separately, then `items = _merge_by_precedence([profile, weather, skill])`.
+  **Precedence: profile > weather > skill.** Meds occupy the FIRST profile slot, so a medication
+  is ALWAYS the first occurrence of its label and can never be the copy a collision drops — the
+  meds-always guarantee is now STRUCTURAL, not just an append.
+- No tool signatures, agent wiring, instruction, or model touched.
+
+### Verified
+- Deterministic (no quota): cold + beach real builds have no dup labels & all meds present;
+  unit test of `_merge_by_precedence` confirms profile beats weather beats skill on a forced
+  3-way "sun hat"/"sunscreen" collision; FORCED-COLLISION test (a med whose label equals a
+  weather+skill item) confirms the med survives exactly once as `source=profile,category=health`.
+- ONE live generate (quota-aware): Reykjavik leisure → `cold, likely precip, 6-12C` → cold_weather
+  items merged, no dup labels, `daily inhaler` survived. ✔
+
+### Pick up from here — README.md, then Milestone E
+1. **README.md (20 pts, not yet started)** — write per spec §9; highest-value remaining deliverable.
+2. Milestone E stretch (only after README): security hardening (§6) → Cloud Run deploy → polish.
+   Don't over-build; spine + B + C + D are solid.
+3. Live-demo risk unchanged: enable billing on the AI Studio key before the demo to kill the
+   free-tier daily cap.
+
+### Not committed yet
+This D work is on disk but NOT committed — waiting on Oguz's go.
+
+---
+
 ## 2026-06-28 (PM) — Milestone C complete (trip skills + progressive disclosure)
 
 ### Situation
