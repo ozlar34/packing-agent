@@ -1,0 +1,3 @@
+# Spec hard-constraint: the web UI must stay one self-contained index.html
+# (inline <style> + <script>, no build step) — splitting it would break the app.
+packing-agent/app/static/index.html

@@ -27,3 +27,7 @@ yarn-error.log*
 *.swp
 .idea/
 .vscode/
+
+# Dev tooling (not needed to run the app — keep clean-clone surface minimal)
+.agent/skills/impeccable/
+.impeccable/
