@@ -23,7 +23,7 @@ from google.genai import types
 from google.genai.errors import ClientError
 from pydantic import BaseModel
 
-from app.agent import app as adk_app
+from app.agent import _load_profile, app as adk_app
 
 # Reuse the weather server's keyless Open-Meteo geocoding plumbing so the UI never
 # has to talk to an external service directly (locked decision: UI is a dumb client,
@@ -165,6 +165,25 @@ async def geocode(q: str) -> dict:
         for r in (data.get("results") or [])
     ]
     return {"results": results}
+
+
+@web.get("/profile")
+async def profile() -> dict:
+    """Read-only profile display data for the "Your profile" panel (Phase 4).
+
+    Surfaces ONLY the two fields the panel renders — medications + always-pack —
+    so the UI can visibly prove the agent "knows you". This is the LOCAL boundary
+    (§6.4): showing medication NAMES in the user's own local UI is fine; the
+    protected boundary is the EXTERNAL one (the weather tool still gets only
+    destination + dates). preferences/avoids/notes are deliberately not returned —
+    the panel doesn't show them, so we don't surface them. No write side exists:
+    profile.json stays hand-edited (locked scope — no editor).
+    """
+    p = _load_profile()
+    return {
+        "medications": p.get("medications", []),
+        "always_pack": p.get("always_pack", []),
+    }
 
 
 @web.get("/")

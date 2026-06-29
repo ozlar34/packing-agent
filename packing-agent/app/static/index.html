@@ -41,10 +41,14 @@
       --accent:    var(--teal);
       --accent-ink:var(--teal-dk);
 
-      /* source identities — keep these hues (docs/screenshots depend on them) */
+      /* source identities — keep these hues (docs/screenshots depend on them).
+         --base is the 4th source (Phase 4): the generic essentials floor. Violet,
+         chosen to stay clearly distinct from profile-red / weather-blue / skill-
+         green and from the decorative --coral / action --mustard. */
       --profile:   #c0392b;   --profile-soft: #c0392b1a;
       --weather:   #2980b9;   --weather-soft: #2980b91a;
       --skill:     #2e9e54;   --skill-soft:   #2e9e541a;
+      --base:      #7c5cbf;   --base-soft:    #7c5cbf1a;
 
       --shadow:        0 1px 2px rgba(20,50,40,.05), 0 8px 24px rgba(20,50,40,.08);
       --shadow-sm:     0 1px 2px rgba(20,50,40,.07);
@@ -363,6 +367,7 @@
     .chip.profile { --c: var(--profile); }
     .chip.weather { --c: var(--weather); }
     .chip.skill   { --c: var(--skill); }
+    .chip.base    { --c: var(--base); }
 
     /* ── Privacy callout — "what was sent vs. what stayed private" ──────── */
     .privacy {
@@ -401,6 +406,69 @@
     .privacy .col.kept .ch { color: var(--skill); }
     .privacy .col .ch svg { width: 14px; height: 14px; flex: none; }
     .privacy .col .cbody { display: block; line-height: 1.5; }
+
+    /* ── "Your profile" panel — read-only proof the agent knows you ─────────
+       Always visible (loaded on page open from GET /profile), independent of any
+       generate. It surfaces the saved medications + always-pack so the "it knows
+       you" promise is on screen before the first list. Local-only display (§6.4);
+       no editor — profile.json is hand-edited. */
+    .profile-panel { margin-top: 1.4rem; overflow: hidden; }
+    .profile-panel .phead {
+      display: flex; align-items: center; gap: .55rem;
+      padding: .85rem 1.1rem;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface-2);
+    }
+    .profile-panel .phead .pico { color: var(--profile); display: grid; place-items: center; }
+    .profile-panel .phead .pico svg { width: 18px; height: 18px; }
+    .profile-panel .phead b { font-size: .9rem; }
+    .profile-panel .phead .tagline {
+      font-size: .78rem; color: var(--ink-3); margin-left: auto;
+      font-family: "Fredoka", system-ui, sans-serif; font-style: italic;
+    }
+    .profile-panel .pbody { padding: .95rem 1.1rem; display: grid; gap: .9rem; }
+    .pgroup { display: grid; gap: .45rem; }
+    .pgroup .plabel {
+      display: flex; align-items: center; gap: .4rem;
+      font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+      color: var(--ink-3);
+    }
+    .pgroup .plabel svg { width: 14px; height: 14px; flex: none; }
+    .pgroup.med .plabel { color: var(--profile); }
+    .ychips { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .you-chip {
+      font-size: .84rem; font-weight: 600; color: var(--ink);
+      background: var(--surface-2); border: 1px solid var(--line);
+      border-radius: 999px; padding: .34rem .7rem;
+    }
+    /* meds get the profile-red tint — the headline "always travels with you" items */
+    .you-chip.med {
+      background: var(--profile-soft);
+      border-color: color-mix(in srgb, var(--profile) 30%, var(--line));
+      color: color-mix(in srgb, var(--profile) 78%, var(--ink));
+    }
+
+    /* ── Result notices — honest forecast-fail + laundry hint ────────────────
+       Small inline banners above the privacy callout. The forecast-fail note is
+       the honesty contract (no invented temps); the laundry hint appears when the
+       trip outruns the per-day clothing cap. */
+    .notice {
+      display: flex; gap: .65rem; align-items: flex-start;
+      padding: .85rem 1rem; border-radius: var(--radius-sm);
+      font-size: .86rem; color: var(--ink-2); margin-top: 1rem;
+    }
+    .notice .nico { flex: none; margin-top: 1px; }
+    .notice .nico svg { width: 18px; height: 18px; }
+    .notice.weatherfail {
+      border: 1px solid color-mix(in srgb, var(--weather) 35%, var(--line));
+      background: var(--weather-soft);
+    }
+    .notice.weatherfail .nico { color: var(--weather); }
+    .notice.laundry {
+      border: 1px solid color-mix(in srgb, var(--action-dk) 38%, var(--line));
+      background: color-mix(in srgb, var(--action) 12%, var(--surface));
+    }
+    .notice.laundry .nico { color: var(--action-dk); }
 
     /* ── Item groups + list ─────────────────────────────────────────────── */
     .group { margin-top: 1.4rem; }
@@ -488,7 +556,15 @@
     .badge.profile { --c: var(--profile); }
     .badge.weather { --c: var(--weather); }
     .badge.skill   { --c: var(--skill); }
+    .badge.base    { --c: var(--base); }
     @media (max-width: 420px) { .badge .btext { display: none; } .badge { padding: .26rem .42rem; } }
+
+    /* quantity tag — the ×N riding inside an item label, shown only when N>1 so
+       single items (passport, inhaler) stay clean. Teal to match the page accent. */
+    li.item .label .qty {
+      font-weight: 700; font-size: .82rem; color: var(--accent-ink);
+      margin-left: .25rem;
+    }
 
     /* Signature ③: passport-stamp feedback. Hidden until the row is checked,
        then it thunks in (scale 1.7→1) like an inked stamp hitting the page —
@@ -673,6 +749,22 @@
       </button>
     </form>
 
+    <!-- ── "Your profile" panel (read-only) — the visible proof the agent knows
+         you. Populated on load from GET /profile; meds + always-pack are surfaced
+         LOCALLY ONLY (§6.4) and merged into every list regardless of trip. Hidden
+         until loaded (and stays hidden if the profile is empty). No editor —
+         profile.json is hand-edited (locked scope). ──────────────────────────── -->
+    <section id="profile-panel" class="card profile-panel" hidden aria-label="Your saved profile">
+      <div class="phead">
+        <span class="pico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
+        </span>
+        <b>Your profile</b>
+        <span class="tagline">merged into every list</span>
+      </div>
+      <div class="pbody" id="profile-body"></div>
+    </section>
+
     <!-- ── Results region. aria-live so results & errors are announced. ──── -->
     <section class="results-region" id="results-region" aria-live="polite" aria-busy="false">
       <!-- screen-reader status line (visual status is the skeleton / hero) -->
@@ -716,6 +808,7 @@
       profile: { label: "Your essentials", icon: iconUser },
       weather: { label: "Weather",         icon: iconCloud },
       skill:   { label: "Trip type",       icon: iconCompass },
+      base:    { label: "Basics",          icon: iconBox },
     };
     // Order categories appear in (anything unknown falls to the end, alphabetically).
     const CATEGORY_ORDER = ["health", "essentials", "clothing", "footwear", "accessories", "toiletries"];
@@ -725,6 +818,10 @@
     function iconUser()    { return svg('<circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>'); }
     function iconCloud()   { return svg('<path d="M7 18a4 4 0 0 1 .5-7.97A5.5 5.5 0 0 1 18 11a3.5 3.5 0 0 1-.5 7H7Z"/>'); }
     function iconCompass() { return svg('<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5 5-2Z"/>'); }
+    function iconBox()     { return svg('<path d="M3 7l9-4 9 4-9 4-9-4Z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/>'); }
+    function iconPill()    { return svg('<rect x="3" y="8" width="18" height="8" rx="4"/><path d="M12 8v8"/>'); }
+    function iconCloudOff(){ return svg('<path d="M7 18a4 4 0 0 1 .5-7.97A5.5 5.5 0 0 1 18 11a3.5 3.5 0 0 1-.5 7H7Z"/><path d="M3 3l18 18"/>'); }
+    function iconWash()    { return svg('<rect x="4" y="3" width="16" height="18" rx="2"/><circle cx="12" cy="13" r="4"/><path d="M7 6h.01M10 6h.01"/>'); }
     function iconCheck()   { return svg('<path d="M4 12.5 9 17.5 20 6.5"/>', 2.4); }
     function iconShield()  { return svg('<path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3Z"/><path d="m9 12 2 2 4-4"/>'); }
     function iconSend()    { return svg('<path d="M22 2 11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7Z"/>'); }
@@ -816,7 +913,7 @@
       current = { data, checked, checkKey, filter: "all" };
 
       const total = data.items.length;
-      const counts = { profile: 0, weather: 0, skill: 0 };
+      const counts = { profile: 0, weather: 0, skill: 0, base: 0 };
       for (const it of data.items) if (counts[it.source] != null) counts[it.source]++;
 
       const look = weatherLook(data.weather_summary);
@@ -833,6 +930,7 @@
              <p class="forecast">${esc(data.weather_summary)}</p>
            </div>
          </div>` +
+        renderNotes(data) +
         renderPrivacy(data.privacy_note) +
         // toolbar: count pill + source legend (which double as filters)
         `<div class="toolbar">
@@ -842,6 +940,7 @@
              ${legendChip("profile", SOURCE.profile.label, counts.profile, "var(--profile)")}
              ${legendChip("weather", SOURCE.weather.label, counts.weather, "var(--weather)")}
              ${legendChip("skill",   SOURCE.skill.label,   counts.skill,   "var(--skill)")}
+             ${legendChip("base",    SOURCE.base.label,    counts.base,    "var(--base)")}
            </div>
          </div>` +
         `<div id="groups"></div>`;
@@ -920,13 +1019,19 @@
       li.className = "item" + (checked[item.label] ? " done" : "");
       li.style.setProperty("--i", i);
       li.style.setProperty("--rot", STICKER_ROT[i % STICKER_ROT.length] + "deg");
+      // Quantity rides inside the label as "×N", shown ONLY when N>1 (locked
+      // decision) so single items — passport, the inhaler — stay clean. The SR
+      // checkbox label spells it out ("socks, 4") rather than the terse glyph.
+      const n = Number(item.quantity) || 1;
+      const qtyTag = n > 1 ? ` <span class="qty">×${n}</span>` : "";
+      const srLabel = n > 1 ? `${item.label}, ${n}` : item.label;
       li.innerHTML =
         `<span class="check">
            <input type="checkbox" ${checked[item.label] ? "checked" : ""}
-                  aria-label="${esc(item.label)}" />
+                  aria-label="${esc(srLabel)}" />
            <span class="box" aria-hidden="true">${iconCheck()}</span>
          </span>
-         <span class="label">${esc(item.label)}</span>
+         <span class="label">${esc(item.label)}${qtyTag}</span>
          <span class="stamp" aria-hidden="true">Packed</span>
          <span class="badge ${item.source}">${meta.icon()}<span class="btext">${esc(meta.label)}</span></span>`;
       const box = li.querySelector("input");
@@ -945,6 +1050,30 @@
       const done = data.items.reduce((n, it) => n + (checked[it.label] ? 1 : 0), 0);
       const pill = document.getElementById("count-pill");
       if (pill) pill.innerHTML = `<b>${done}</b> of <b>${total}</b> packed`;
+    }
+
+    /* Result notices: the honest forecast-fail note + the laundry hint. Both are
+       additive §4.4 fields. The forecast-fail note is the honesty contract — when
+       get_weather couldn't fetch a real forecast we say so plainly and never show
+       invented temps as real. The laundry hint appears when the trip outran the
+       per-day clothing cap. */
+    function renderNotes(data) {
+      let html = "";
+      if (data.forecast_ok === false) {
+        html +=
+          `<div class="notice weatherfail">
+             <span class="nico" aria-hidden="true">${iconCloudOff()}</span>
+             <span>Couldn't fetch a live forecast for these dates — packed a neutral baseline instead of guessing the weather.</span>
+           </div>`;
+      }
+      if (data.laundry_hint) {
+        html +=
+          `<div class="notice laundry">
+             <span class="nico" aria-hidden="true">${iconWash()}</span>
+             <span>${esc(data.laundry_hint)}</span>
+           </div>`;
+      }
+      return html;
     }
 
     /* Privacy callout — the §6.5 "Vibe Diff": split the agent's plain-English note
@@ -1104,6 +1233,43 @@
 
     // Initial state: no pick yet, so Generate is blocked.
     setGeoValid(false);
+
+    /* ────────────────────────────────────────────────────────────────────────
+       "Your profile" panel (Phase 4). Loaded once on page open from GET /profile,
+       so the saved meds + always-pack are visible BEFORE the first list — the
+       on-screen proof of "it knows you". Read-only (no editor); local-only display
+       per §6.4. Stays hidden if the fetch fails or the profile is empty.
+       ──────────────────────────────────────────────────────────────────────── */
+    async function loadProfile() {
+      try {
+        const res = await fetch("/profile");
+        if (!res.ok) return;
+        renderProfilePanel(await res.json());
+      } catch { /* offline / no server: just leave the panel hidden */ }
+    }
+
+    function renderProfilePanel(p) {
+      const meds   = p.medications || [];
+      const always = p.always_pack || [];
+      if (!meds.length && !always.length) return; // nothing saved → keep hidden
+
+      const group = (title, items, cls, icon) =>
+        items.length
+          ? `<div class="pgroup ${cls}">
+               <span class="plabel">${icon}${esc(title)}</span>
+               <div class="ychips">
+                 ${items.map((i) => `<span class="you-chip ${cls}">${esc(i)}</span>`).join("")}
+               </div>
+             </div>`
+          : "";
+
+      document.getElementById("profile-body").innerHTML =
+        group("Medications", meds, "med", iconPill()) +
+        group("Always packed", always, "always", iconBox());
+      document.getElementById("profile-panel").hidden = false;
+    }
+
+    loadProfile();
 
     /* ────────────────────────────────────────────────────────────────────────
        Submit handler. The network contract is now additive: POST /generate with
