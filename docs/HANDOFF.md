@@ -3,6 +3,57 @@
 > Newest entry on top. Read `docs/ADK_SETUP.md` (decisions + "Current build status")
 > alongside this. This file is the "where we stopped / what's next" layer.
 
+## 2026-06-29 — UI redesign shipped + committed + pushed + LIVE verify GREEN
+
+### Done this session (commits `1debaaa` + `d5ae612`, **both pushed**; `main` in sync with origin)
+- **Committed the full 5-phase UI redesign** (`1debaaa`): bright flat-travel reskin of the single
+  self-contained `packing-agent/app/static/index.html` + the plan doc `docs/UI_REDESIGN_PLAN.md`
+  (all 5 phases were already built/verified in prior sessions — this session committed them).
+  `/generate` contract + response shape untouched.
+- **Tooling hygiene** (`d5ae612`): gitignored the Impeccable dev artifacts
+  (`.agent/skills/impeccable/`, `.impeccable/`) so the clean-clone surface stays minimal; added
+  `.filesizeignore` exempting `index.html` from the size tripwire (spec mandates one self-contained
+  file, can't be split). Working tree clean.
+- **LIVE end-to-end re-verify — GREEN (quota was healthy, not exhausted).** Prior sessions only ever
+  tested the redesign with a *replayed* payload; this session ran the **real agent**:
+  - Ran `cd packing-agent && uv run python -m app.server` (127.0.0.1:8000) with the key loaded.
+  - **Money demo proven:** Reykjavik `cold, 8-13C` (13 items) vs Dubai `hot, 29-45C` (12 items) →
+    forecast differs → list differs (9 cold-only / 8 hot-only / 4 shared). Destination→forecast→list.
+  - **"It knows you":** profile medication present in BOTH lists regardless of trip type.
+  - **Real-browser pass (Playwright vs live server, no interception):** 13 items + 13 sticker badges,
+    **0 console/page errors**, Vibe Diff renders from the real `privacy_note` (eyebrows on own lines —
+    Phase 5 fix confirmed; meds counted not named). Screenshot at scratchpad `live_ui.png` (ephemeral).
+- **README/Writeup freshness check:** nothing stale — no UI screenshots are embedded anywhere; both
+  docs describe the UI functionally, so the redesign invalidates no wording. Only image in repo is
+  `architecture.png` (flow diagram / cover, still accurate).
+
+### Key/secret setup (important for next live run)
+- The Gemini key now lives in **macOS Keychain as secret `google-api-key`** (added via `add-secret`).
+- `packing-agent/.env` was written this session as `GOOGLE_API_KEY=<from get-secret google-api-key>`
+  (gitignored, 69 bytes). If `.env` is missing in a future session, recreate it from the Keychain:
+  `cd packing-agent && { printf 'GOOGLE_API_KEY='; get-secret google-api-key; } > .env`
+  (the secret-exposure hook blocks reading the value into chat, but writing to a gitignored `.env`
+  is fine). Run the server FROM `packing-agent/` so it loads that `.env`.
+
+### Pick up from here — critical path is now SHORT (all code/docs done; only platform actions remain)
+1. **Record the YouTube video ≤5 min** (Oguz — physical-world action). UI is demo-ready. Best to enable
+   billing on the AI Studio key first to kill the free-tier daily cap mid-recording (~20 calls/model/day).
+2. **Submit on Kaggle** (Oguz — no tool for the web UI): paste project link + Writeup, select Concierge
+   track, **merge team**, click **Submit (not Save)** before July 6 2026 23:59 PT.
+3. **Optional (offered, not done):** drop scratchpad `live_ui.png` into the README under the intro to
+   strengthen the 20-pt README (held off — "don't rewrite prose unasked"). Re-screenshot if wanted.
+4. **Optional bonus:** Cloud Run deploy (still deferred — needs interactive gcloud auth + billing).
+
+### Preview the app (quick reference)
+```
+cd /Users/oguzoral/Desktop/ai-travel-packing-agent/packing-agent
+uv run python -m app.server        # wait for "Uvicorn running on http://127.0.0.1:8000"
+# open http://127.0.0.1:8000 ; pick dates within ~16 days (Open-Meteo forecast limit) ; Generate
+# Ctrl+C to stop. Port busy? lsof -nP -iTCP:8000 -sTCP:LISTEN then kill <PID>
+```
+
+---
+
 ## 2026-06-28 (later) — Milestone E (parts 1–3) done: Vibe Diff + logging audit + checkbox UI
 
 ### Done this session (commit `adb1cde`, NOT yet pushed)
