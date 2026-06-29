@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from google.adk.artifacts import InMemoryArtifactService
@@ -23,7 +23,7 @@ from google.genai import types
 from google.genai.errors import ClientError
 from pydantic import BaseModel
 
-from app.agent import _load_profile, app as adk_app
+from app.agent import _load_profile, PROFILE_PATH, app as adk_app
 
 # Reuse the weather server's keyless Open-Meteo geocoding plumbing so the UI never
 # has to talk to an external service directly (locked decision: UI is a dumb client,
@@ -58,6 +58,20 @@ class TripInput(BaseModel):
     # trip payload to the agent (accepted-but-not-yet-used: one unproven box).
     latitude: float | None = None
     longitude: float | None = None
+
+
+class ProfileEdit(BaseModel):
+    """Editable subset of the profile (the two headline lists the panel shows).
+
+    Deliberately scoped to medications + always_pack: those are the items the
+    "Your profile" panel surfaces and the only ones a user edits from the UI.
+    preferences{avoids, notes} stays out of the contract here and is preserved
+    untouched on write (it has no UI surface), so the editor never silently
+    drops a hand-edited field.
+    """
+
+    medications: list[str]
+    always_pack: list[str]
 
 
 def _extract_packing_list(event) -> dict | None:
@@ -184,6 +198,45 @@ async def profile() -> dict:
         "medications": p.get("medications", []),
         "always_pack": p.get("always_pack", []),
     }
+
+
+# Loopback hosts allowed to WRITE the profile. The profile holds medication names
+# (§6 sensitive, local-only): writes are accepted only from the same machine, so
+# even if the server is ever bound to 0.0.0.0 the editor stays local-only.
+_LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+
+@web.put("/profile")
+async def update_profile(edit: ProfileEdit, request: Request) -> dict:
+    """Write the editable profile fields back to profile.json (localhost only).
+
+    The companion to the read-only GET /profile: lets the user maintain the two
+    headline lists from the UI instead of hand-editing JSON. The data-minimization
+    story is preserved — this endpoint only WRITES the local file; medication names
+    never cross the external (weather) boundary, which still gets destination+dates.
+    """
+    client_host = request.client.host if request.client else None
+    if client_host not in _LOCAL_HOSTS:
+        # Sensitive personal data: refuse writes from anything but the local machine.
+        raise HTTPException(status_code=403, detail="Profile is editable from localhost only.")
+
+    # Normalize: trim each entry, drop blanks. The UI sends one item per textarea
+    # line, so empty lines / stray whitespace must not become empty packing items.
+    def _clean(items: list[str]) -> list[str]:
+        return [s.strip() for s in items if s.strip()]
+
+    # Read-modify-write so the un-edited preferences{} block survives untouched.
+    p = _load_profile()
+    p["medications"] = _clean(edit.medications)
+    p["always_pack"] = _clean(edit.always_pack)
+
+    # Atomic write: render to a temp file in the same dir, then replace, so a crash
+    # mid-write can't leave a truncated/corrupt profile.json.
+    tmp = PROFILE_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(p, indent=2) + "\n")
+    tmp.replace(PROFILE_PATH)
+
+    return {"medications": p["medications"], "always_pack": p["always_pack"]}
 
 
 @web.get("/")

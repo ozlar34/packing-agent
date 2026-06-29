@@ -154,6 +154,49 @@ def _weather_items(summary: str, precipitation: str, conditions: list[str]) -> l
     return items
 
 
+# The agent (LLM) may author at most this many trip-specific extras. Bounded on
+# purpose: the model's role is a small, legible top-up over the deterministic
+# catalogs — never the bulk of the list — so a hallucination can't flood it.
+_AGENT_ITEM_CAP = 6
+
+
+def _agent_items(labels: list[str] | None) -> list[dict]:
+    """Turn the LLM's reasoned trip-specific suggestions into packing items.
+
+    This is the ONE place the agent gets to author content (Milestone #1). The
+    catalogs/weather/skill/profile cover the predictable items deterministically;
+    this lets the model add the few situational things they can't anticipate
+    (e.g. a power adapter for a specific region, an umbrella for a rainy
+    business trip). We keep it SAFE and BOUNDED rather than trusting the model
+    blindly:
+      - trim + drop blanks (the model sometimes pads with whitespace),
+      - dedupe within its own suggestions (case-insensitively),
+      - hard-cap at _AGENT_ITEM_CAP so it can never dominate the list.
+    Everything here is source="agent" and lands at the LOWEST merge precedence,
+    so any label a trusted source already supplies wins — the model can neither
+    shadow a deterministic item nor relabel one. Only genuinely-new items survive.
+    """
+    items: list[dict] = []
+    seen: set[str] = set()
+    for raw in labels or []:
+        label = (raw or "").strip()
+        if not label:
+            continue
+        key = _normalize_label(label)
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append({
+            "label": label,
+            "source": "agent",
+            "category": "extras",  # its own group — visibly "the AI's additions"
+            "quantity": 1,
+        })
+        if len(items) >= _AGENT_ITEM_CAP:
+            break  # bounded: ignore anything past the cap
+    return items
+
+
 def _trip_days(start_date: str, end_date: str) -> int:
     """Inclusive trip length in days (a same-day trip is 1, not 0).
 
@@ -359,6 +402,7 @@ def build_packing_list(
     conditions: list[str],
     skill_name: str,
     forecast_ok: bool = True,
+    agent_items: list[str] | None = None,
 ) -> dict:
     """Build a personalized packing list for a trip.
 
@@ -389,13 +433,22 @@ def build_packing_list(
             fetched; False when it couldn't be (geocode-miss / network / HTTP
             error), in which case temp_c_min/temp_c_max are None and we must NOT
             present invented temperatures as a real reading.
+        agent_items: YOUR (the model's) own short list of trip-specific extras the
+            fixed catalogs can't anticipate — reasoned from destination, dates,
+            purpose and the forecast (e.g. a region-specific power adapter, an
+            umbrella for a rainy business trip, modest layers for visiting
+            temples). Plain item labels, no quantities. Capped at 6 and merged at
+            the lowest precedence, so anything the trusted sources already cover is
+            dropped — only genuinely-new items survive, tagged source="agent".
+            Leave empty if nothing specific comes to mind; never restate generic
+            basics (toothbrush, charger) — those are already handled.
 
     Returns:
         A packing list in the §4.4 shape: {trip, weather_summary, items[]}, where
         each item is {label, source, category, quantity} and source ∈ {weather,
-        skill, profile, base}. quantity is an int ≥ 1 (default 1; the UI shows ×N
-        only when N > 1). The shape also carries forecast_ok and an optional
-        laundry_hint (additive — items[]'s existing keys are untouched).
+        skill, profile, base, agent}. quantity is an int ≥ 1 (default 1; the UI
+        shows ×N only when N > 1). The shape also carries forecast_ok and an
+        optional laundry_hint (additive — items[]'s existing keys are untouched).
     """
     profile = _load_profile()
 
@@ -436,21 +489,30 @@ def build_packing_list(
     days = _trip_days(start_date, end_date)
     base_items = _base_items(weather_summary, days, forecast_ok)
 
-    # PRECEDENCE (highest -> lowest): profile > weather > skill > base.
+    # --- Agent-authored items (Milestone #1): the model's own reasoned extras. ---
+    # The ONE place the LLM contributes content. Bounded + lowest precedence (see
+    # _agent_items): it can only ADD novel situational items, never shadow or
+    # relabel anything a trusted source already produced.
+    llm_items = _agent_items(agent_items)
+
+    # PRECEDENCE (highest -> lowest): profile > weather > skill > base > agent.
     #   - profile first  => meds/always-pack always win a collision (the guarantee
     #     above) and the personalized item's metadata is the one kept.
     #   - weather second => the real, trip-specific forecast beats the generic
     #     archetype baseline when both imply the same item.
     #   - skill third    => the trip-archetype list fills in over the generic floor.
-    #   - base last      => the universal essentials/quantity floor; any label a
+    #   - base fourth    => the universal essentials/quantity floor; any label a
     #     higher source already owns (e.g. profile "phone charger") dedupes the
     #     generic base copy away. The surviving item keeps ITS OWN quantity.
+    #   - agent LAST     => the model's extras only appear when no trusted source
+    #     already covers that label, so the LLM can add but never override.
     # Order is the ONLY knob; _merge_by_precedence keeps the first label it sees.
     items = _merge_by_precedence([
         med_items + always_items,  # profile (meds first within profile)
         weather_items,             # weather
         skill_items,               # skill
         base_items,                # base (generic floor + quantities)
+        llm_items,                 # agent (model-authored extras, capped)
     ])
 
     # Human-readable forecast line for the UI (§4.4 weather_summary). When the
@@ -525,8 +587,21 @@ root_agent = Agent(
         "temp_c_max, precipitation, conditions, forecast_ok), AND skill_name = the "
         "skill you selected in step 2. Pass forecast_ok exactly as get_weather "
         "returned it.\n"
+        "   Also pass agent_items: a SHORT list (0-6) of trip-SPECIFIC extras you "
+        "reason are worth packing for THIS trip given the destination, dates, "
+        "purpose and forecast — things the generic catalogs can't know. Good "
+        "examples: a region-specific power-plug adapter, an umbrella for a rainy "
+        "business trip, modest layers for visiting temples/churches, swim goggles "
+        "for a lake trip, a reusable bag for a market town. Rules for agent_items: "
+        "be specific and situational; do NOT restate generic basics (toothbrush, "
+        "charger, socks, underwear) — those are already added for you; do NOT "
+        "guess at the user's medications or personal items; if nothing specific "
+        "stands out, pass an empty list. These are clearly labeled as your picks, "
+        "so quality over quantity.\n"
         "4. Briefly confirm the list is ready.\n"
-        "Do not invent packing items yourself — the tools are the source of truth."
+        "The deterministic tools own the universal basics, the forecast gear, the "
+        "trip-archetype items and the user's saved profile — never duplicate those. "
+        "Your authored contribution is ONLY the situational agent_items in step 3."
     ),
     tools=[_weather_toolset, select_skill, build_packing_list],
 )

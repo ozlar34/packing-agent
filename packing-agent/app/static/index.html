@@ -49,6 +49,9 @@
       --weather:   #2980b9;   --weather-soft: #2980b91a;
       --skill:     #2e9e54;   --skill-soft:   #2e9e541a;
       --base:      #7c5cbf;   --base-soft:    #7c5cbf1a;
+      /* --agent is the model-authored source (#1): the LLM's reasoned trip-specific
+         extras. Magenta — distinct from every other source hue and the accents. */
+      --agent:     #cc3a8f;   --agent-soft:   #cc3a8f1a;
 
       --shadow:        0 1px 2px rgba(20,50,40,.05), 0 8px 24px rgba(20,50,40,.08);
       --shadow-sm:     0 1px 2px rgba(20,50,40,.07);
@@ -368,6 +371,7 @@
     .chip.weather { --c: var(--weather); }
     .chip.skill   { --c: var(--skill); }
     .chip.base    { --c: var(--base); }
+    .chip.agent   { --c: var(--agent); }
 
     /* ── Privacy callout — "what was sent vs. what stayed private" ──────── */
     .privacy {
@@ -407,11 +411,11 @@
     .privacy .col .ch svg { width: 14px; height: 14px; flex: none; }
     .privacy .col .cbody { display: block; line-height: 1.5; }
 
-    /* ── "Your profile" panel — read-only proof the agent knows you ─────────
+    /* ── "Your profile" panel — proof the agent knows you ──────────────────
        Always visible (loaded on page open from GET /profile), independent of any
        generate. It surfaces the saved medications + always-pack so the "it knows
-       you" promise is on screen before the first list. Local-only display (§6.4);
-       no editor — profile.json is hand-edited. */
+       you" promise is on screen before the first list. Local-only (§6.4); editable
+       in place via PUT /profile (localhost-only write). */
     .profile-panel { margin-top: 1.4rem; overflow: hidden; }
     .profile-panel .phead {
       display: flex; align-items: center; gap: .55rem;
@@ -447,6 +451,41 @@
       border-color: color-mix(in srgb, var(--profile) 30%, var(--line));
       color: color-mix(in srgb, var(--profile) 78%, var(--ink));
     }
+    /* "Nothing saved yet" hint when the profile is empty (editor still reachable) */
+    .pempty { font-size: .84rem; color: var(--ink-3); font-style: italic; }
+
+    /* ── Profile editor (revealed by the Edit button) ──────────────────────── */
+    .phead .pedit {
+      margin-left: auto; font: inherit; font-size: .76rem; font-weight: 600;
+      color: var(--ink-2); background: var(--surface);
+      border: 1px solid var(--line); border-radius: 8px;
+      padding: .28rem .6rem; cursor: pointer;
+    }
+    .phead .pedit:hover { border-color: var(--profile); color: var(--profile); }
+    .phead .tagline + .pedit { margin-left: .6rem; }
+    .pfield { display: grid; gap: .4rem; }
+    .pfield label {
+      display: flex; align-items: center; gap: .4rem;
+      font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+      color: var(--ink-3);
+    }
+    .pfield label svg { width: 14px; height: 14px; flex: none; }
+    .pfield textarea {
+      font: inherit; font-size: .86rem; color: var(--ink);
+      background: var(--surface); border: 1px solid var(--line);
+      border-radius: 10px; padding: .55rem .7rem; resize: vertical; min-height: 4.2rem;
+    }
+    .pfield textarea:focus-visible {
+      outline: none; border-color: var(--profile);
+      box-shadow: 0 0 0 3px var(--profile-soft);
+    }
+    .pfield .phint { font-size: .72rem; color: var(--ink-3); }
+    .pactions { display: flex; gap: .5rem; justify-content: flex-end; }
+    .pactions button { font: inherit; font-size: .82rem; font-weight: 600; cursor: pointer; border-radius: 8px; padding: .4rem .85rem; }
+    .pactions .psave { color: #fff; background: var(--profile); border: 1px solid var(--profile); }
+    .pactions .psave:hover { filter: brightness(1.05); }
+    .pactions .pcancel { color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); }
+    .pactions .pcancel:hover { border-color: var(--ink-3); }
 
     /* ── Result notices — honest forecast-fail + laundry hint ────────────────
        Small inline banners above the privacy callout. The forecast-fail note is
@@ -557,6 +596,7 @@
     .badge.weather { --c: var(--weather); }
     .badge.skill   { --c: var(--skill); }
     .badge.base    { --c: var(--base); }
+    .badge.agent   { --c: var(--agent); }
     @media (max-width: 420px) { .badge .btext { display: none; } .badge { padding: .26rem .42rem; } }
 
     /* quantity tag — the ×N riding inside an item label, shown only when N>1 so
@@ -749,11 +789,12 @@
       </button>
     </form>
 
-    <!-- ── "Your profile" panel (read-only) — the visible proof the agent knows
-         you. Populated on load from GET /profile; meds + always-pack are surfaced
-         LOCALLY ONLY (§6.4) and merged into every list regardless of trip. Hidden
-         until loaded (and stays hidden if the profile is empty). No editor —
-         profile.json is hand-edited (locked scope). ──────────────────────────── -->
+    <!-- ── "Your profile" panel — the visible proof the agent knows you.
+         Populated on load from GET /profile; meds + always-pack are surfaced
+         LOCALLY ONLY (§6.4) and merged into every list regardless of trip. Editable
+         in place (Edit button → PUT /profile, a localhost-only write). Hidden until
+         the load resolves, then always shown so an empty profile can be populated.
+         ──────────────────────────────────────────────────────────────────────── -->
     <section id="profile-panel" class="card profile-panel" hidden aria-label="Your saved profile">
       <div class="phead">
         <span class="pico" aria-hidden="true">
@@ -761,6 +802,7 @@
         </span>
         <b>Your profile</b>
         <span class="tagline">merged into every list</span>
+        <button type="button" class="pedit" id="profile-edit-btn">Edit</button>
       </div>
       <div class="pbody" id="profile-body"></div>
     </section>
@@ -809,9 +851,14 @@
       weather: { label: "Weather",         icon: iconCloud },
       skill:   { label: "Trip type",       icon: iconCompass },
       base:    { label: "Basics",          icon: iconBox },
+      // agent = the model's own reasoned trip-specific extras (Milestone #1). The
+      // "Smart pick" label makes the AI's authored contribution visible on screen.
+      agent:   { label: "Smart pick",      icon: iconSpark },
     };
     // Order categories appear in (anything unknown falls to the end, alphabetically).
-    const CATEGORY_ORDER = ["health", "essentials", "clothing", "footwear", "accessories", "toiletries"];
+    // "extras" is the agent-authored bucket — kept last so the model's picks read as
+    // a top-up after the predictable groups.
+    const CATEGORY_ORDER = ["health", "essentials", "clothing", "footwear", "accessories", "toiletries", "extras"];
 
     /* ── small inline-SVG helpers (no network assets) ───────────────────── */
     function svg(paths, w) { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w||1.6}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`; }
@@ -820,6 +867,7 @@
     function iconCompass() { return svg('<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5 5-2Z"/>'); }
     function iconBox()     { return svg('<path d="M3 7l9-4 9 4-9 4-9-4Z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/>'); }
     function iconPill()    { return svg('<rect x="3" y="8" width="18" height="8" rx="4"/><path d="M12 8v8"/>'); }
+    function iconSpark()   { return svg('<path d="M12 3l1.8 4.7L18.5 9.5 13.8 11.3 12 16l-1.8-4.7L5.5 9.5 10.2 7.7 12 3Z"/><path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8Z"/>'); }
     function iconCloudOff(){ return svg('<path d="M7 18a4 4 0 0 1 .5-7.97A5.5 5.5 0 0 1 18 11a3.5 3.5 0 0 1-.5 7H7Z"/><path d="M3 3l18 18"/>'); }
     function iconWash()    { return svg('<rect x="4" y="3" width="16" height="18" rx="2"/><circle cx="12" cy="13" r="4"/><path d="M7 6h.01M10 6h.01"/>'); }
     function iconCheck()   { return svg('<path d="M4 12.5 9 17.5 20 6.5"/>', 2.4); }
@@ -913,7 +961,7 @@
       current = { data, checked, checkKey, filter: "all" };
 
       const total = data.items.length;
-      const counts = { profile: 0, weather: 0, skill: 0, base: 0 };
+      const counts = { profile: 0, weather: 0, skill: 0, base: 0, agent: 0 };
       for (const it of data.items) if (counts[it.source] != null) counts[it.source]++;
 
       const look = weatherLook(data.weather_summary);
@@ -941,6 +989,7 @@
              ${legendChip("weather", SOURCE.weather.label, counts.weather, "var(--weather)")}
              ${legendChip("skill",   SOURCE.skill.label,   counts.skill,   "var(--skill)")}
              ${legendChip("base",    SOURCE.base.label,    counts.base,    "var(--base)")}
+             ${counts.agent ? legendChip("agent", SOURCE.agent.label, counts.agent, "var(--agent)") : ""}
            </div>
          </div>` +
         `<div id="groups"></div>`;
@@ -1237,21 +1286,29 @@
     /* ────────────────────────────────────────────────────────────────────────
        "Your profile" panel (Phase 4). Loaded once on page open from GET /profile,
        so the saved meds + always-pack are visible BEFORE the first list — the
-       on-screen proof of "it knows you". Read-only (no editor); local-only display
-       per §6.4. Stays hidden if the fetch fails or the profile is empty.
+       on-screen proof of "it knows you". Local-only display per §6.4. Editable in
+       place: Edit swaps the chips for textareas and Save PUTs back (localhost-only
+       write). The panel always shows once loaded, so an empty profile can be filled.
        ──────────────────────────────────────────────────────────────────────── */
+    const profileEditBtn = document.getElementById("profile-edit-btn");
+    let currentProfile = { medications: [], always_pack: [] };
+
     async function loadProfile() {
       try {
         const res = await fetch("/profile");
-        if (!res.ok) return;
-        renderProfilePanel(await res.json());
+        if (!res.ok) return; // fetch failed → leave panel hidden
+        currentProfile = await res.json();
+        renderProfileView();
+        document.getElementById("profile-panel").hidden = false;
       } catch { /* offline / no server: just leave the panel hidden */ }
     }
 
-    function renderProfilePanel(p) {
-      const meds   = p.medications || [];
-      const always = p.always_pack || [];
-      if (!meds.length && !always.length) return; // nothing saved → keep hidden
+    // Read mode: the medication + always-pack chips (or an empty hint).
+    function renderProfileView() {
+      const meds   = currentProfile.medications || [];
+      const always = currentProfile.always_pack || [];
+      profileEditBtn.textContent = "Edit";
+      profileEditBtn.hidden = false;
 
       const group = (title, items, cls, icon) =>
         items.length
@@ -1263,12 +1320,66 @@
              </div>`
           : "";
 
+      const body = group("Medications", meds, "med", iconPill()) +
+                   group("Always packed", always, "always", iconBox());
       document.getElementById("profile-body").innerHTML =
-        group("Medications", meds, "med", iconPill()) +
-        group("Always packed", always, "always", iconBox());
-      document.getElementById("profile-panel").hidden = false;
+        body || `<p class="pempty">Nothing saved yet — hit Edit to add medications and always-pack items.</p>`;
     }
 
+    // Edit mode: one item per line in each textarea (the simplest faithful editor
+    // for short string lists — no per-chip add/remove machinery to maintain).
+    function renderProfileEdit() {
+      const meds   = (currentProfile.medications || []).join("\n");
+      const always = (currentProfile.always_pack || []).join("\n");
+      profileEditBtn.hidden = true; // Save/Cancel take over while editing
+
+      document.getElementById("profile-body").innerHTML = `
+        <div class="pfield">
+          <label>${iconPill()}Medications</label>
+          <textarea id="edit-meds" rows="3" placeholder="one per line">${esc(meds)}</textarea>
+        </div>
+        <div class="pfield">
+          <label>${iconBox()}Always packed</label>
+          <textarea id="edit-always" rows="4" placeholder="one per line">${esc(always)}</textarea>
+        </div>
+        <p class="phint">One item per line. These merge into every list — medications stay on this device and never reach the weather lookup.</p>
+        <div class="pactions">
+          <button type="button" class="pcancel" id="profile-cancel-btn">Cancel</button>
+          <button type="button" class="psave" id="profile-save-btn">Save</button>
+        </div>`;
+
+      document.getElementById("profile-cancel-btn").addEventListener("click", renderProfileView);
+      document.getElementById("profile-save-btn").addEventListener("click", saveProfile);
+    }
+
+    async function saveProfile() {
+      const lines = (id) =>
+        document.getElementById(id).value.split("\n").map((s) => s.trim()).filter(Boolean);
+      const saveBtn = document.getElementById("profile-save-btn");
+      saveBtn.disabled = true;
+      saveBtn.textContent = "Saving…";
+      try {
+        const res = await fetch("/profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ medications: lines("edit-meds"), always_pack: lines("edit-always") }),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          let message = res.statusText;
+          try { message = JSON.parse(body).detail || message; } catch {}
+          throw new Error(message);
+        }
+        currentProfile = await res.json(); // server echoes the normalized lists
+        renderProfileView();
+      } catch (err) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = "Save";
+        alert("Could not save profile: " + err.message);
+      }
+    }
+
+    profileEditBtn.addEventListener("click", renderProfileEdit);
     loadProfile();
 
     /* ────────────────────────────────────────────────────────────────────────
