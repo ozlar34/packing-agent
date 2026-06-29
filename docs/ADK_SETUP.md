@@ -26,7 +26,7 @@ Both came from https://adk.dev/tutorials/coding-with-ai/.
 ## Tooling installed
 - `agents-cli` — installed as a uv tool, on PATH at `~/.local/bin/agents-cli`
   (reinstall: `uv tool install google-agents-cli`). Workspace-scoped skill install was used
-  so the ADK skills DON'T pollute global the assistant context.
+  so the ADK skills DON'T pollute global agent context.
 - `uv` 0.10.10, Python 3.12.3, Node 22, `npx` — all present.
 - `skills-lock.json` pins the installed skill versions (committed).
 

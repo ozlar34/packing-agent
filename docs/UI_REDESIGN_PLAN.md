@@ -30,7 +30,7 @@ this file under "Resume prompts").
 - **Reference image:** `/Users/oguzoral/Downloads/WhatsApp Image 2026-06-28 at 23.52.34.jpeg`
   (flat travel scene: mint ground, coral suitcase covered in stickers, mustard accents, hot-air balloon, dotted route lines, flat icons)
 - **Target file (the real app, git-tracked, revertible):** `packing-agent/app/static/index.html`
-- **Good JS base to reskin:** `/Users/oguzoral/Desktop/index.html` — a the assistant Design pass.
+- **Good JS base to reskin:** `/Users/oguzoral/Desktop/index.html` — a design pass.
   Its *look* was rejected as bland, but its **JS structure is solid and worth keeping**:
   per-state rendering (empty / skeleton / error / result), source filter chips,
   category grouping, count pill, privacy "Vibe Diff" split panel, custom checkboxes.

@@ -29,5 +29,5 @@ yarn-error.log*
 .vscode/
 
 # Dev tooling (not needed to run the app — keep clean-clone surface minimal)
-.agent/skills/impeccable/
+.claude/
 .impeccable/

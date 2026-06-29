@@ -383,7 +383,7 @@ Dubai → `hot, 28-42C` → sun hat + sunscreen. Both keep `daily inhaler` + alw
 
 ### Still not done
 - No `README.md` yet (20-pt deliverable). adk-docs MCP still ⏸ pending approval (needs a
-  `the assistant` restart) — fell back to skill refs + reading the installed ADK source, fine.
+  CLI restart) — fell back to skill refs + reading the installed ADK source, fine.
   Milestones C/D/E pending. Scaffold's live-LLM integration tests not run (would burn free
   quota / 503).
 
@@ -413,13 +413,13 @@ B–E slot in by replacing stubs, one at a time.
 - Clean-clone setup: `cp profile.example.json packing-agent/profile.json`, then put a real
   AI Studio key in `packing-agent/app/.env` (`GOOGLE_API_KEY`). Then:
   `cd packing-agent && uv run python -m app.server` → http://127.0.0.1:8000.
-- adk-docs MCP server was **⏸ Pending approval** this session (project MCP needs a `the assistant`
+- adk-docs MCP server was **⏸ Pending approval** this session (project MCP needs a CLI
   restart to approve). Fell back to `.agent/skills/.../references/*.md` — fine. Re-check next.
 
 ### Pick up from here — Milestone B (real MCP weather)
 1. **Re-read first:** `docs/ADK_SETUP.md` ("Current build status"); `packing-agent/app/agent.py`
    (the stub items to replace); spec §4.3 + §5.2.
-2. Confirm adk-docs MCP connected (`the assistant mcp list`); load skills `google-agents-cli-workflow`
+2. Confirm adk-docs MCP connected (the MCP-list command); load skills `google-agents-cli-workflow`
    then `google-agents-cli-adk-code` before writing ADK code. Use `MCPToolset` over **stdio**
    (decision 5).
 3. **Next action:** create `weather_server.py` MCP server (stdio) exposing
