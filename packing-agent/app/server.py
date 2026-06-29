@@ -25,6 +25,11 @@ from pydantic import BaseModel
 
 from app.agent import app as adk_app
 
+# Reuse the weather server's keyless Open-Meteo geocoding plumbing so the UI never
+# has to talk to an external service directly (locked decision: UI is a dumb client,
+# all external calls go through our server proxy).
+from app.weather_server import _GEOCODE_URL, _get_json
+
 # Load app/.env so GOOGLE_API_KEY (AI Studio) is available to the genai client.
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
@@ -47,6 +52,12 @@ class TripInput(BaseModel):
     start_date: str
     end_date: str
     purpose: str
+    # Picked from the geocoding dropdown (decision: dropdown captures lat/lon +
+    # canonical label). Optional + additive — older non-dropdown callers still work,
+    # and get_weather only *uses* these in Phase 2. For now they ride along on the
+    # trip payload to the agent (accepted-but-not-yet-used: one unproven box).
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 def _extract_packing_list(event) -> dict | None:
@@ -117,6 +128,43 @@ async def generate(trip: TripInput) -> dict:
             detail="Agent did not produce a packing list (tool was not called).",
         )
     return packing_list
+
+
+@web.get("/geocode")
+async def geocode(q: str) -> dict:
+    """Disambiguating place search for the destination autocomplete.
+
+    Proxies Open-Meteo's keyless geocoding API and returns up to ~10 ranked
+    candidates so the user can pick the EXACT place (killing the "Bali → a village
+    near Kolkata" bug). The UI talks only to us, never to Open-Meteo directly.
+    Returns {results: [{name, admin1, country, latitude, longitude, population}]}.
+    Open-Meteo already ranks by relevance/population, so we preserve that order.
+    """
+    q = q.strip()
+    if len(q) < 2:
+        # Too short to disambiguate usefully; avoid a noisy upstream call.
+        return {"results": []}
+    try:
+        data = _get_json(
+            _GEOCODE_URL,
+            {"name": q, "count": 10, "language": "en", "format": "json"},
+        )
+    except Exception:
+        # Network/parse hiccup: degrade to "no matches" rather than 500 the UI.
+        return {"results": []}
+
+    results = [
+        {
+            "name": r.get("name"),
+            "admin1": r.get("admin1"),
+            "country": r.get("country"),
+            "latitude": r.get("latitude"),
+            "longitude": r.get("longitude"),
+            "population": r.get("population"),
+        }
+        for r in (data.get("results") or [])
+    ]
+    return {"results": results}
 
 
 @web.get("/")

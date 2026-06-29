@@ -170,6 +170,28 @@
       box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
     }
 
+    /* destination autocomplete — input + popup listbox of disambiguated places */
+    .combobox { position: relative; }
+    .geo-list {
+      position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 6px);
+      margin: 0; padding: .3rem; list-style: none;
+      background: var(--surface); border: 1px solid var(--line);
+      border-radius: var(--radius-sm); box-shadow: var(--shadow);
+      max-height: 280px; overflow-y: auto;
+    }
+    .geo-list[hidden] { display: none; }
+    .geo-opt {
+      display: flex; align-items: baseline; gap: .5rem;
+      padding: .5rem .6rem; border-radius: 9px; cursor: pointer;
+      font-size: .92rem; color: var(--ink);
+    }
+    .geo-opt .geo-name { font-weight: 600; }
+    .geo-opt .geo-sub  { font-size: .8rem; color: var(--ink-3); }
+    .geo-opt:hover, .geo-opt.active {
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+    }
+    .geo-empty { padding: .55rem .6rem; font-size: .85rem; color: var(--ink-3); }
+
     /* paired date range — two inputs sharing one focus-aware frame */
     .daterange {
       display: grid;
@@ -589,8 +611,21 @@
     <form id="trip-form" class="card" novalidate>
       <div class="field">
         <label class="flabel" for="destination">Destination</label>
-        <input id="destination" name="destination" type="text" value="Reykjavik, Iceland"
-               placeholder="City, country" autocomplete="off" required />
+        <!-- Search-as-you-type autocomplete. The user must PICK a candidate so we
+             capture the exact place's lat/lon (kills the "Bali → Indian village"
+             ambiguity). ARIA combobox pattern: input owns a listbox popup. -->
+        <div class="combobox">
+          <input id="destination" name="destination" type="text"
+                 placeholder="Search a city…" autocomplete="off" required
+                 role="combobox" aria-expanded="false" aria-autocomplete="list"
+                 aria-controls="geo-list" aria-activedescendant="" />
+          <ul id="geo-list" class="geo-list" role="listbox"
+              aria-label="Destination matches" hidden></ul>
+        </div>
+        <!-- Hidden coords stashed on pick; submitted with the trip (FormData reads
+             named inputs). Cleared whenever the text is edited → pick invalidated. -->
+        <input type="hidden" id="latitude" name="latitude" />
+        <input type="hidden" id="longitude" name="longitude" />
       </div>
 
       <div class="field">
@@ -940,12 +975,146 @@
     }
 
     /* ────────────────────────────────────────────────────────────────────────
-       Submit handler. The network contract is unchanged: POST /generate with
-       { destination, start_date, end_date, purpose }, and the robust non-JSON
-       error parsing is preserved verbatim.
+       Destination autocomplete (Phase 1). Debounced search-as-you-type hits our
+       /geocode proxy, shows a disambiguating dropdown, and on pick stashes the
+       exact lat/lon. Generate stays disabled until a valid pick; editing the text
+       after a pick invalidates it. Full keyboard + click nav, ARIA combobox.
+       ──────────────────────────────────────────────────────────────────────── */
+    const destInput = document.getElementById("destination");
+    const latInput  = document.getElementById("latitude");
+    const lonInput  = document.getElementById("longitude");
+    const geoList   = document.getElementById("geo-list");
+
+    let geoResults  = [];   // current candidate list backing the dropdown
+    let geoActive   = -1;   // highlighted option index (-1 = none)
+    let geoValid    = false; // true only after a real pick; gates submit
+    let geoTimer    = null;  // debounce handle
+    let geoSeq      = 0;     // request id — drops stale/out-of-order responses
+
+    // A candidate's human label: "Name, Admin1, Country" (skip empties).
+    function geoLabel(r) {
+      return [r.name, r.admin1, r.country].filter(Boolean).join(", ");
+    }
+
+    // Validity drives the Generate button. Invalidating also clears coords so a
+    // stale lat/lon can never ride along with edited free text.
+    function setGeoValid(v) {
+      geoValid = v;
+      submitBtn.disabled = !v;
+      if (!v) { latInput.value = ""; lonInput.value = ""; }
+    }
+
+    function closeGeo() {
+      geoList.hidden = true;
+      geoList.innerHTML = "";
+      geoResults = [];
+      geoActive = -1;
+      destInput.setAttribute("aria-expanded", "false");
+      destInput.setAttribute("aria-activedescendant", "");
+    }
+
+    function renderGeo(results) {
+      geoResults = results;
+      geoActive = -1;
+      if (!results.length) {
+        geoList.innerHTML = `<li class="geo-empty" role="presentation">No matches — keep typing</li>`;
+        geoList.hidden = false;
+        destInput.setAttribute("aria-expanded", "true");
+        return;
+      }
+      geoList.innerHTML = results.map((r, i) => {
+        const sub = [r.admin1, r.country].filter(Boolean).join(", ");
+        return `<li id="geo-opt-${i}" class="geo-opt" role="option" aria-selected="false" data-i="${i}">
+                  <span class="geo-name">${esc(r.name)}</span>
+                  <span class="geo-sub">${esc(sub)}</span>
+                </li>`;
+      }).join("");
+      geoList.hidden = false;
+      destInput.setAttribute("aria-expanded", "true");
+      geoList.querySelectorAll(".geo-opt").forEach((el) => {
+        // mousedown (not click) so the pick lands before the input's blur fires.
+        el.addEventListener("mousedown", (ev) => { ev.preventDefault(); pickGeo(+el.dataset.i); });
+      });
+    }
+
+    function highlight(i) {
+      const opts = geoList.querySelectorAll(".geo-opt");
+      if (!opts.length) return;
+      geoActive = (i + opts.length) % opts.length;
+      opts.forEach((el, idx) => {
+        const on = idx === geoActive;
+        el.classList.toggle("active", on);
+        el.setAttribute("aria-selected", on ? "true" : "false");
+      });
+      destInput.setAttribute("aria-activedescendant", `geo-opt-${geoActive}`);
+      opts[geoActive].scrollIntoView({ block: "nearest" });
+    }
+
+    function pickGeo(i) {
+      const r = geoResults[i];
+      if (!r) return;
+      destInput.value = geoLabel(r);
+      latInput.value = r.latitude;
+      lonInput.value = r.longitude;
+      setGeoValid(true);
+      closeGeo();
+    }
+
+    async function searchGeo(q) {
+      const seq = ++geoSeq;
+      try {
+        const res = await fetch(`/geocode?q=${encodeURIComponent(q)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (seq !== geoSeq) return; // a newer keystroke already superseded this
+        renderGeo(data.results || []);
+      } catch { /* network hiccup: leave the dropdown as-is */ }
+    }
+
+    destInput.addEventListener("input", () => {
+      setGeoValid(false);           // any edit invalidates a prior pick
+      const q = destInput.value.trim();
+      clearTimeout(geoTimer);
+      if (q.length < 2) { closeGeo(); return; }
+      geoTimer = setTimeout(() => searchGeo(q), 250); // ~250ms debounce
+    });
+
+    destInput.addEventListener("keydown", (e) => {
+      if (geoList.hidden) {
+        if (e.key === "ArrowDown" && destInput.value.trim().length >= 2) {
+          searchGeo(destInput.value.trim());
+          e.preventDefault();
+        }
+        return;
+      }
+      switch (e.key) {
+        case "ArrowDown": highlight(geoActive + 1); e.preventDefault(); break;
+        case "ArrowUp":   highlight(geoActive - 1); e.preventDefault(); break;
+        case "Enter":
+          if (geoActive >= 0) { pickGeo(geoActive); e.preventDefault(); }
+          break;
+        case "Escape":    closeGeo(); break;
+      }
+    });
+
+    // Click outside the combobox closes the popup.
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest(".combobox")) closeGeo();
+    });
+
+    // Initial state: no pick yet, so Generate is blocked.
+    setGeoValid(false);
+
+    /* ────────────────────────────────────────────────────────────────────────
+       Submit handler. The network contract is now additive: POST /generate with
+       { destination, start_date, end_date, purpose, latitude, longitude }, and the
+       robust non-JSON error parsing is preserved verbatim.
        ──────────────────────────────────────────────────────────────────────── */
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      // Belt-and-suspenders: the button is already disabled until a valid pick,
+      // but guard here too so a stray Enter elsewhere can't submit free text.
+      if (!geoValid) { destInput.focus(); return; }
       showLoading();
 
       const payload = Object.fromEntries(new FormData(form).entries());
