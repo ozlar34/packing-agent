@@ -237,11 +237,12 @@ def build_packing_list(
     end_date: str,
     purpose: str,
     weather_summary: str,
-    temp_c_min: float,
-    temp_c_max: float,
+    temp_c_min: float | None,
+    temp_c_max: float | None,
     precipitation: str,
     conditions: list[str],
     skill_name: str,
+    forecast_ok: bool = True,
 ) -> dict:
     """Build a personalized packing list for a trip.
 
@@ -268,6 +269,10 @@ def build_packing_list(
         conditions: §4.3 notable conditions, e.g. ["rain", "wind"].
         skill_name: The trip-archetype skill chosen via select_skill, whose items
             are added to the list. One of: cold_weather | beach.
+        forecast_ok: get_weather's honesty flag. True when a real forecast was
+            fetched; False when it couldn't be (geocode-miss / network / HTTP
+            error), in which case temp_c_min/temp_c_max are None and we must NOT
+            present invented temperatures as a real reading.
 
     Returns:
         A packing list in the §4.4 shape: {trip, weather_summary, items[]}, where
@@ -318,11 +323,16 @@ def build_packing_list(
         skill_items,               # skill
     ])
 
-    # Human-readable forecast line for the UI (§4.4 weather_summary).
-    precip_note = f", {precipitation} precip" if precipitation not in ("none", "") else ""
-    display_summary = (
-        f"{weather_summary}{precip_note}, {round(temp_c_min)}-{round(temp_c_max)}C"
-    )
+    # Human-readable forecast line for the UI (§4.4 weather_summary). When the
+    # forecast couldn't be fetched we stay HONEST: no invented temps presented as
+    # real — just say a neutral baseline was packed (the UI elaborates in Phase 4).
+    if forecast_ok and temp_c_min is not None and temp_c_max is not None:
+        precip_note = f", {precipitation} precip" if precipitation not in ("none", "") else ""
+        display_summary = (
+            f"{weather_summary}{precip_note}, {round(temp_c_min)}-{round(temp_c_max)}C"
+        )
+    else:
+        display_summary = "live forecast unavailable — packed a neutral baseline"
 
     return {
         "trip": {
@@ -331,6 +341,9 @@ def build_packing_list(
             "end_date": end_date,
         },
         "weather_summary": display_summary,
+        # Honest-forecast flag rides along on the §4.4 shape (additive — items[]
+        # untouched) so the UI can show the "couldn't fetch a live forecast" note.
+        "forecast_ok": forecast_ok,
         "items": items,
         # §6.5 "Vibe Diff": the privacy story for THIS run, in plain English. A new
         # field on the §4.4 shape — items[] is untouched, so existing consumers and
@@ -364,7 +377,9 @@ root_agent = Agent(
         "You are a personalized trip packing assistant. When the user gives you "
         "trip details (destination, start_date, end_date, purpose):\n"
         "1. FIRST call get_weather with the destination, start_date, and end_date "
-        "to fetch the forecast.\n"
+        "to fetch the forecast. If the trip details include latitude and longitude "
+        "(the user picked an exact place from the dropdown), pass them to "
+        "get_weather too so it forecasts the right location.\n"
         "2. THEN choose ONE trip-archetype skill and call select_skill with its "
         "name. Selection rule (apply in order):\n"
         "   - if the forecast summary is 'cold' or 'freezing' -> 'cold_weather'\n"
@@ -374,8 +389,9 @@ root_agent = Agent(
         "unsure, pick 'beach' for warm/mild trips and 'cold_weather' for cool ones.\n"
         "3. THEN call build_packing_list, passing the original trip details, the "
         "forecast fields from get_weather (weather_summary=summary, temp_c_min, "
-        "temp_c_max, precipitation, conditions), AND skill_name = the skill you "
-        "selected in step 2.\n"
+        "temp_c_max, precipitation, conditions, forecast_ok), AND skill_name = the "
+        "skill you selected in step 2. Pass forecast_ok exactly as get_weather "
+        "returned it.\n"
         "4. Briefly confirm the list is ready.\n"
         "Do not invent packing items yourself — the tools are the source of truth."
     ),

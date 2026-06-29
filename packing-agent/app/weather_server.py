@@ -109,37 +109,62 @@ def _conditions(codes: list[int], max_prob: float, max_wind: float) -> list[str]
 
 
 @mcp.tool()
-def get_weather(destination: str, start_date: str, end_date: str) -> dict:
+def get_weather(
+    destination: str,
+    start_date: str,
+    end_date: str,
+    latitude: float | None = None,
+    longitude: float | None = None,
+) -> dict:
     """Get the weather forecast for a destination over a date range.
 
     Args:
         destination: Free-text place name, e.g. "Reykjavik, Iceland".
         start_date: Trip start, ISO YYYY-MM-DD.
         end_date: Trip end, ISO YYYY-MM-DD.
+        latitude: Optional. The exact latitude the user picked from the
+            disambiguating dropdown. When BOTH latitude and longitude are
+            present we use them directly and SKIP geocoding — this is what kills
+            the "Bali → a village near Kolkata" bug (the dropdown already
+            resolved the right place). Geocoding only runs as a fallback for
+            non-dropdown callers.
+        longitude: Optional. See latitude.
 
     Returns:
-        A §4.3 weather response: {destination, start_date, end_date, summary,
-        temp_c_min, temp_c_max, precipitation, conditions[]} where summary is one
-        of hot | warm | mild | cold | freezing.
+        A §4.3 weather response plus an honest-failure flag:
+        {destination, start_date, end_date, summary, temp_c_min, temp_c_max,
+        precipitation, conditions[], forecast_ok}. summary is one of
+        hot | warm | mild | cold | freezing. forecast_ok is True only when a
+        real forecast was fetched; on a geocode-miss / network / HTTP error it is
+        False and the temps are None — we NEVER present invented numbers as a
+        real reading (honest forecast-failure, no silent lie).
     """
-    # Neutral fallback so the packing list always generates even if Open-Meteo is
-    # unreachable or the place can't be resolved — weather never hard-fails the run.
+    # Honest-failure baseline so the run never hard-fails: forecast_ok=False and
+    # NO invented temperatures (temps stay None). Downstream shows a "neutral
+    # baseline" note instead of a fake "12-20C, mild" forecast. This replaces the
+    # old silent neutral fallback that lied with made-up numbers.
     result = {
         "destination": destination,
         "start_date": start_date,
         "end_date": end_date,
         "summary": "mild",
-        "temp_c_min": 12,
-        "temp_c_max": 20,
+        "temp_c_min": None,
+        "temp_c_max": None,
         "precipitation": "none",
         "conditions": [],
+        "forecast_ok": False,
     }
 
     try:
-        coords = _geocode(destination)
-        if coords is None:
-            return result
-        daily = _fetch_daily(coords[0], coords[1], start_date, end_date)
+        # Dropdown path: trust the exact coords the user picked, skip geocoding.
+        if latitude is not None and longitude is not None:
+            lat, lon = latitude, longitude
+        else:
+            coords = _geocode(destination)
+            if coords is None:
+                return result  # place couldn't be resolved — honest fail.
+            lat, lon = coords
+        daily = _fetch_daily(lat, lon, start_date, end_date)
 
         highs = daily["temperature_2m_max"]
         lows = daily["temperature_2m_min"]
@@ -158,6 +183,7 @@ def get_weather(destination: str, start_date: str, end_date: str) -> dict:
                 "temp_c_max": round(max(highs)),
                 "precipitation": _precip_label(max_prob),
                 "conditions": _conditions([c for c in codes if c is not None], max_prob, max_wind),
+                "forecast_ok": True,  # a real forecast was fetched for these coords.
             }
         )
     except Exception:
