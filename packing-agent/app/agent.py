@@ -15,6 +15,7 @@
 
 import json
 import sys
+from datetime import date
 from pathlib import Path
 
 from google.adk.agents import Agent
@@ -72,6 +73,10 @@ def _parse_skill_items(skill_text: str) -> list[dict]:
                 "label": label.strip(),
                 "source": "skill",
                 "category": category.strip(),
+                # Skill items are always single-quantity (the catalog/quantity
+                # engine only governs base per-day clothing). quantity is on every
+                # item so the §4.4 shape is uniform — the UI shows ×N only when N>1.
+                "quantity": 1,
             })
     return items
 
@@ -126,24 +131,135 @@ def _weather_items(summary: str, precipitation: str, conditions: list[str]) -> l
     Milestone D folds this into the full three-source merge; for now it just
     proves "changing destination changes the forecast changes the list."
     """
+    # Weather items are single-quantity (one jacket, one bottle of sunscreen) — the
+    # quantity engine only multiplies the per-day base clothing. quantity rides on
+    # every item so the §4.4 shape is uniform (UI shows ×N only when N>1).
     items: list[dict] = []
     conds = {c.lower() for c in conditions}
 
     # Temperature bucket → a headline layer.
     if summary in ("cold", "freezing"):
-        items.append({"label": "warm insulated jacket", "source": "weather", "category": "clothing"})
+        items.append({"label": "warm insulated jacket", "source": "weather", "category": "clothing", "quantity": 1})
     elif summary == "hot":
-        items.append({"label": "sun hat", "source": "weather", "category": "clothing"})
+        items.append({"label": "sun hat", "source": "weather", "category": "clothing", "quantity": 1})
 
     # Precipitation / conditions → protective gear.
     if "rain" in conds or precipitation in ("likely", "certain"):
-        items.append({"label": "waterproof jacket", "source": "weather", "category": "clothing"})
+        items.append({"label": "waterproof jacket", "source": "weather", "category": "clothing", "quantity": 1})
     if "snow" in conds:
-        items.append({"label": "waterproof boots", "source": "weather", "category": "footwear"})
+        items.append({"label": "waterproof boots", "source": "weather", "category": "footwear", "quantity": 1})
     if "sun" in conds or summary == "hot":
-        items.append({"label": "sunscreen", "source": "weather", "category": "toiletries"})
+        items.append({"label": "sunscreen", "source": "weather", "category": "toiletries", "quantity": 1})
 
     return items
+
+
+def _trip_days(start_date: str, end_date: str) -> int:
+    """Inclusive trip length in days (a same-day trip is 1, not 0).
+
+    Drives the quantity engine: tops/underwear/socks are 1×/day. Dates are ISO
+    YYYY-MM-DD per the data contract. We defend against malformed or reversed
+    dates by clamping to a minimum of 1 day — the list must still render rather
+    than crash on bad input (golden rule: a working fake beats a broken real).
+    """
+    try:
+        delta = (date.fromisoformat(end_date) - date.fromisoformat(start_date)).days
+    except (ValueError, TypeError):
+        return 1
+    return max(1, delta + 1)
+
+
+# Per-day-clothing cap (decision: 1×/day but never pack more than a week's worth;
+# past 7 days we surface a "plan to do laundry" hint instead of stacking 14 shirts).
+_PER_DAY_CAP = 7
+
+
+def _base_items(summary: str, days: int, forecast_ok: bool) -> list[dict]:
+    """The base-essentials catalog + quantity engine (Phase-3 locked catalog).
+
+    This is the generic FLOOR every trip gets — the universal stuff a packing list
+    is bare without (toothbrush, charger, a week of socks). It sits at the LOWEST
+    precedence in the merge, so anything the profile/weather/skill already supplies
+    wins the label collision (e.g. profile's "phone charger" dedupes the generic
+    one away). All items are source="base" and carry an explicit quantity.
+
+    Quantity engine, three classes:
+      - Class A — fixed ×1, always included (toiletries, essentials, generic
+        health, walking shoes). Weather-independent.
+      - Class B — 1×/day capped at 7 (top, underwear, socks). Past the cap the
+        caller surfaces a laundry hint (see _laundry_hint) rather than overpacking.
+      - Class C — quantity + label vary by weather (bottoms, sleepwear).
+
+    Honest-forecast handling: when forecast_ok is False we don't know the weather,
+    so we pick NEUTRAL labels (t-shirt / pants / pajamas) and skip the warm/cold and
+    hot-weather variants — we never dress the list for a forecast we couldn't fetch.
+    """
+    # Treat an unfetched forecast as "weather unknown": neutral labels only.
+    cold = forecast_ok and summary in ("cold", "freezing")
+    per_day = min(days, _PER_DAY_CAP)  # Class B cap.
+
+    # --- Class C labels: vary by weather (neutral when the forecast is unknown). ---
+    if not forecast_ok:
+        bottoms_label = "pants"
+    elif summary in ("hot", "warm"):
+        bottoms_label = "shorts"
+    elif summary == "mild":
+        bottoms_label = "pants"
+    else:  # cold / freezing
+        bottoms_label = "warm pants"
+    bottoms_qty = 1 if days <= 4 else 2
+
+    top_label = "long-sleeve top" if cold else "t-shirt"
+    sleep_label = "warm pajamas" if cold else "pajamas"
+
+    def item(label: str, category: str, quantity: int = 1) -> dict:
+        return {"label": label, "source": "base", "category": category, "quantity": quantity}
+
+    items: list[dict] = []
+
+    # --- Class A: fixed ×1, weather-independent. ---
+    for label in (
+        "toothbrush", "toothpaste", "deodorant", "shampoo (travel size)",
+        "soap/body wash", "razor", "hairbrush/comb", "toiletry bag",
+    ):
+        items.append(item(label, "toiletries"))
+    for label in (
+        # phone charger + passport are GENERIC FALLBACKS — when the profile owns
+        # them (always_pack) the merge dedupes these away in favor of "Your essentials".
+        "wallet", "travel power adapter", "power bank", "headphones/earbuds",
+        "reusable water bottle", "phone charger", "passport",
+    ):
+        items.append(item(label, "essentials"))
+    for label in ("pain reliever", "adhesive bandages", "hand sanitizer"):
+        # Generic health basics — distinct from (and alongside) profile medications.
+        items.append(item(label, "health"))
+    items.append(item("comfortable walking shoes", "footwear"))
+
+    # --- Class B: 1×/day, capped at 7. ---
+    items.append(item(top_label, "clothing", per_day))
+    items.append(item("underwear", "clothing", per_day))
+    items.append(item("socks", "clothing", per_day))
+
+    # --- Class C: quantity + label by weather. ---
+    items.append(item(bottoms_label, "clothing", bottoms_qty))
+    items.append(item(sleep_label, "clothing"))
+
+    return items
+
+
+def _laundry_hint(days: int) -> str | None:
+    """A "plan to do laundry" note when the trip outruns the per-day cap.
+
+    Past _PER_DAY_CAP days we deliberately stop multiplying clothing (no one wants a
+    bag with 14 shirts), so we tell the user to plan a wash instead. Returns None
+    for trips within the cap so the field is simply absent.
+    """
+    if days <= _PER_DAY_CAP:
+        return None
+    return (
+        f"You're away {days} days but we capped tops/underwear/socks at "
+        f"{_PER_DAY_CAP} — plan to do laundry partway through."
+    )
 
 
 def _privacy_note(destination: str, med_count: int, always_count: int) -> str:
@@ -276,7 +392,10 @@ def build_packing_list(
 
     Returns:
         A packing list in the §4.4 shape: {trip, weather_summary, items[]}, where
-        each item is {label, source, category} and source ∈ {weather, skill, profile}.
+        each item is {label, source, category, quantity} and source ∈ {weather,
+        skill, profile, base}. quantity is an int ≥ 1 (default 1; the UI shows ×N
+        only when N > 1). The shape also carries forecast_ok and an optional
+        laundry_hint (additive — items[]'s existing keys are untouched).
     """
     profile = _load_profile()
 
@@ -302,25 +421,36 @@ def build_packing_list(
     # precedence) slot of the merge, so a med is always the first occurrence of its
     # label and therefore the copy that survives. always_pack rides alongside it.
     med_items = [
-        {"label": med, "source": "profile", "category": "health"}
+        {"label": med, "source": "profile", "category": "health", "quantity": 1}
         for med in profile.get("medications", [])
     ]
     always_items = [
-        {"label": thing, "source": "profile", "category": "essentials"}
+        {"label": thing, "source": "profile", "category": "essentials", "quantity": 1}
         for thing in profile.get("always_pack", [])
     ]
 
-    # PRECEDENCE (highest -> lowest): profile > weather > skill.
+    # --- Base-essentials (Phase 3): the generic floor + quantity engine. ---
+    # Lowest precedence: anything profile/weather/skill already supplies dedupes
+    # these away (e.g. profile "phone charger" beats the generic base one). When the
+    # forecast failed, _base_items falls back to neutral labels (no fake weather).
+    days = _trip_days(start_date, end_date)
+    base_items = _base_items(weather_summary, days, forecast_ok)
+
+    # PRECEDENCE (highest -> lowest): profile > weather > skill > base.
     #   - profile first  => meds/always-pack always win a collision (the guarantee
     #     above) and the personalized item's metadata is the one kept.
     #   - weather second => the real, trip-specific forecast beats the generic
     #     archetype baseline when both imply the same item.
-    #   - skill last      => the generic trip-archetype list fills in the rest.
+    #   - skill third    => the trip-archetype list fills in over the generic floor.
+    #   - base last      => the universal essentials/quantity floor; any label a
+    #     higher source already owns (e.g. profile "phone charger") dedupes the
+    #     generic base copy away. The surviving item keeps ITS OWN quantity.
     # Order is the ONLY knob; _merge_by_precedence keeps the first label it sees.
     items = _merge_by_precedence([
         med_items + always_items,  # profile (meds first within profile)
         weather_items,             # weather
         skill_items,               # skill
+        base_items,                # base (generic floor + quantities)
     ])
 
     # Human-readable forecast line for the UI (§4.4 weather_summary). When the
@@ -344,6 +474,9 @@ def build_packing_list(
         # Honest-forecast flag rides along on the §4.4 shape (additive — items[]
         # untouched) so the UI can show the "couldn't fetch a live forecast" note.
         "forecast_ok": forecast_ok,
+        # "plan to do laundry" hint when the trip outruns the per-day cap; absent
+        # (None) for short trips. Additive field — items[]/shape are untouched.
+        "laundry_hint": _laundry_hint(days),
         "items": items,
         # §6.5 "Vibe Diff": the privacy story for THIS run, in plain English. A new
         # field on the §4.4 shape — items[] is untouched, so existing consumers and
