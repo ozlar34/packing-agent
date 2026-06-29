@@ -46,19 +46,26 @@ Only the agent is "smart"; everything else is a tool or a data source it orchest
 
 ![Architecture: Web UI + Profile feed the ADK agent, which calls the weather MCP server and selects a trip skill, then merges all three sources into the rendered packing list](docs/assets/architecture.png)
 
-**Request flow:** form → agent → `get_weather` (MCP) → `select_skill` → `build_packing_list` →
-rendered §4.4 list.
+**Request flow:** form (place picked from a disambiguating autocomplete) → agent →
+`get_weather` (MCP, called with the picked lat/lon) → `select_skill` → `build_packing_list`
+(four-source merge + quantity engine) → rendered §4.4 list.
+
+Two real runs, same profile — the weather and quantities change, the medication never does:
+
+| Warm trip (Bali, Indonesia) | Cold trip (Reykjavík, Iceland) |
+|---|---|
+| ![Bali packing list — warm, t-shirt ×5, shorts ×2, daily inhaler present](docs/assets/demo-bali.png) | ![Reykjavík packing list — cold, long-sleeve top ×7, warm pants ×2, laundry hint, daily inhaler present](docs/assets/demo-reykjavik.png) |
 
 ### Components
 
 | Component | Where | Responsibility |
 |---|---|---|
-| **Web UI** | `packing-agent/app/static/index.html` | Dumb client. Collects trip facts, POSTs to `/generate`, renders the returned list. No business logic. |
+| **Web UI** | `packing-agent/app/static/index.html` | Dumb client. Collects trip facts via a **disambiguating place autocomplete** (type → pick the exact city → its lat/lon ride along), shows a read-only **"Your profile" panel**, POSTs to `/generate`, and renders the returned list with per-item quantities. No business logic, no external calls. |
 | **User profile** | `packing-agent/profile.json` (gitignored) | Persistent personal facts. Read by the **agent** at reasoning time — never by the UI, never sent to the weather tool, never logged. |
-| **Core agent (ADK)** | `packing-agent/app/agent.py` | The orchestrator and the **only** place reasoning happens. Calls the weather tool, picks one skill, and runs the deterministic merge. |
-| **Weather MCP server** | `packing-agent/app/weather_server.py` | A single tool `get_weather` over **stdio MCP**, backed by keyless **Open-Meteo**. ADK spawns it as a subprocess — no extra terminal, no port. |
+| **Core agent (ADK)** | `packing-agent/app/agent.py` | The orchestrator and the **only** place reasoning happens. Calls the weather tool, picks one skill, and runs the deterministic four-source merge — including the **base-essentials catalog + quantity engine** (universal items, per-day counts, weather-driven labels). |
+| **Weather MCP server** | `packing-agent/app/weather_server.py` | A single tool `get_weather` over **stdio MCP**, backed by keyless **Open-Meteo**. Uses the picked lat/lon directly (skips re-geocoding); returns an honest `forecast_ok` flag instead of faking temperatures when a forecast can't be fetched. ADK spawns it as a subprocess — no extra terminal, no port. |
 | **Trip skills** | `packing-agent/skills/{cold_weather,beach}/SKILL.md` | One folder per trip archetype: human guidance + a `## Packing items` list. Loaded **on demand** (progressive disclosure). |
-| **Local web server** | `packing-agent/app/server.py` | GCP-free FastAPI entrypoint that drives the ADK agent for the local demo. |
+| **Local web server** | `packing-agent/app/server.py` | GCP-free FastAPI entrypoint that drives the ADK agent. Also proxies `GET /geocode?q=` (Open-Meteo place search, so the UI never calls an external service) and `GET /profile` (read-only display data for the profile panel). |
 
 ---
 
@@ -71,21 +78,29 @@ rendered §4.4 list.
 | 3 | **Agent Skills** | `skills/cold_weather/` and `skills/beach/`, selected on demand by the `select_skill` tool (progressive disclosure). |
 | 4 | **Security / privacy** | Data minimization at the tool boundary, local-only gitignored profile, no secrets in repo, no PII in logs — see below. |
 
-### The deterministic three-source merge (the agentic core)
+### The deterministic four-source merge + quantity engine (the agentic core)
 
 `build_packing_list` in `app/agent.py` is where points are won. The LLM decides *to call it* and
 hands over the trip + forecast, but the list itself is assembled by Python — never left to the model.
 
-- Three sources are built separately: **profile** items (medications + always-pack), **weather**
-  items (derived from the live forecast), and **skill** items (from the chosen archetype).
+- Four sources are built separately: **profile** items (medications + always-pack), **weather**
+  items (derived from the live forecast), **skill** items (from the chosen archetype), and **base**
+  items (a universal essentials catalog + a quantity engine, so a list is never bare-bones).
+- The **quantity engine** sizes the base layer to the trip: per-day items (tops, underwear, socks)
+  are `min(days, 7)` with a "plan to do laundry" hint past the cap; bottoms and sleepwear get
+  weather-driven labels (`shorts`/`pants`/`warm pants`, `pajamas`/`warm pajamas`). Each item carries
+  a `quantity` the UI renders as `×N` (only when N > 1, so `passport` stays clean).
 - They are merged by `_merge_by_precedence`, which dedupes by normalized label and keeps the
   **first** occurrence — so **precedence is encoded purely by order**.
-- **Precedence: profile > weather > skill.** Medications occupy the **first** profile slot, so a
-  medication is always the first occurrence of its label and can never be the copy a collision
-  drops. **The meds-always guarantee is structural**, not an afterthought.
+- **Precedence: profile > weather > skill > base.** Medications occupy the **first** profile slot,
+  so a medication is always the first occurrence of its label and can never be the copy a collision
+  drops. **The meds-always guarantee is structural**, not an afterthought. Base is the generic floor:
+  a `phone charger` the profile already owns dedupes the generic base copy away.
 
-Each output item carries a `source ∈ {profile, weather, skill}` so the agent's reasoning stays
-legible in the rendered list.
+Each output item carries a `source ∈ {profile, weather, skill, base}` so the agent's reasoning stays
+legible in the rendered list — colored badges (Your essentials / Weather / Trip type / Basics) make
+it visible at a glance. When a live forecast can't be fetched, the list stays **honest**: a
+`forecast_ok=false` flag drives a "packed a neutral baseline" note instead of inventing temperatures.
 
 ---
 
@@ -112,11 +127,14 @@ cd packing-agent
 uv run python -m app.server
 ```
 
-Open **http://127.0.0.1:8000**, fill in the form, and click **Generate**.
+Open **http://127.0.0.1:8000**, start typing a destination, **pick the exact city from the
+autocomplete** (this disambiguates e.g. *Bali, Indonesia* from a same-named village near Kolkata, and
+sends its precise coordinates to the forecast), then click **Generate**.
 
-**The money demo:** change the destination from a warm place (e.g. *Dubai*) to a cold one (e.g.
-*Reykjavik*) and watch the list change with the live forecast — while your medication and essentials
-persist on **every** list.
+**The money demo:** generate for a warm place (e.g. *Bali, Indonesia*) and then a cold one (e.g.
+*Reykjavík, Iceland*) and watch the list transform with the live forecast — weather items, item
+labels, and quantities all flip (`t-shirt ×5, shorts` ↔ `long-sleeve top ×7, warm pants ×2` + a
+laundry hint) — while your medication and essentials persist, unmoved, on **every** list.
 
 > **Free-tier quota caveat:** the AI Studio free tier has a per-day request cap (each Generate makes
 > ~3 model calls). Heavy testing can exhaust it; the per-minute cap clears in ~1 min and the daily
@@ -146,6 +164,11 @@ This is a Concierge agent handling personal and medical data, so the boundaries 
    (destination + dates) versus what stayed local (medications + always-pack, named only by count so
    no medication name appears in the output text). Makes the privacy boundary legible, not implicit.
 
+The read-only **"Your profile" panel** (served by `GET /profile`) surfaces your medication and
+always-pack item *names* — but only in **your own local UI**. That is the deliberate inner boundary:
+medication names are fine on your machine; the protected boundary is the **external** one, where the
+weather tool still receives only a place and two dates.
+
 ---
 
 ## Project status
@@ -156,9 +179,12 @@ Built incrementally, kept runnable end-to-end at every step:
 - ✅ **B — real MCP weather:** `get_weather` over stdio MCP, backed by Open-Meteo; destination
   changes the forecast changes the list.
 - ✅ **C — trip skills:** two contrasting skills with on-demand `select_skill` loading.
-- ✅ **D — the merge:** deterministic three-source dedupe with the structural meds-always guarantee.
+- ✅ **D — the merge:** deterministic four-source dedupe with the structural meds-always guarantee.
 - ✅ **E — stretch:** on-screen "Vibe Diff" privacy summary, logging audit, checkbox UI with
   persisted state. (Cloud Run deployment is an optional bonus, not required for judging.)
+- ✅ **Revamp polish:** disambiguating place autocomplete + lat/lon passthrough (kills the
+  wrong-city forecast bug), honest `forecast_ok` failure flag, base-essentials catalog + quantity
+  engine (four-source merge), and a read-only "Your profile" panel so "it knows you" is visible.
 
 ---
 

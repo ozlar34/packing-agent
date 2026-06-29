@@ -1,7 +1,7 @@
 <!--
 Kaggle Writeup — paste-ready. Concierge Agents track.
 Constraints: ≤2,500 words, must include a title + subtitle.
-Word count of the body (Title/Subtitle/Track lines excluded): ~1,950.
+Word count of the body (Title/Subtitle/Track lines excluded): ~2,350 (incl. markup/diagram).
 -->
 
 # Title: The Packing Agent That Knows You
@@ -62,7 +62,7 @@ The guiding principle: **only the agent is "smart."** Everything else is a dumb 
 
 **The components:**
 
-- **Web UI** (`app/static/index.html`) — a dumb client. It collects the trip facts, POSTs them to `/generate`, and renders the returned list. It never sees the profile and contains no logic.
+- **Web UI** (`app/static/index.html`) — a dumb client. It collects the trip facts through a **disambiguating place autocomplete** (you type, pick the exact city, and its precise coordinates ride along — so *Bali, Indonesia* is never confused with a same-named village near Kolkata), shows a read-only **"Your profile" panel** so the personalization is visible before you even generate, POSTs to `/generate`, and renders the returned list with per-item quantities. It never sees the profile data at reasoning time and contains no business logic — even the place search is proxied through our own server.
 - **User profile** (`profile.json`, gitignored) — persistent personal facts, read by the **agent** at reasoning time. It is never read by the UI, never sent to the weather tool, and never logged.
 - **Core agent (ADK)** — the orchestrator and the only place reasoning happens. It calls the weather tool, selects one skill, and invokes the deterministic merge.
 - **Weather MCP server** (`app/weather_server.py`) — a single tool, `get_weather`, exposed over **stdio MCP** via FastMCP and backed by **keyless Open-Meteo**. ADK spawns it as a subprocess, so the whole app launches with one command — no second terminal, no port, no API key.
@@ -80,23 +80,25 @@ We set out to demonstrate at least three of the course's concepts meaningfully; 
 
 4. **Security / privacy** — the Concierge story. Covered in its own section below.
 
-## The agentic core: a deterministic three-source merge
+## The agentic core: a deterministic four-source merge
 
 This is where the implementation points are won, so we treated it with care. The function `build_packing_list` is the heart of the system, and the design tension it resolves is this: **the LLM should decide *to* build the list, but should never be trusted to *assemble* it.** Medical data is too important to leave to a model that might paraphrase, drop, or hallucinate an item.
 
-So the division of labor is strict. The agent reads the forecast, picks the skill, and calls `build_packing_list` with the trip facts and the skill *name*. From there, **pure Python takes over.** It builds three separate lists:
+So the division of labor is strict. The agent reads the forecast, picks the skill, and calls `build_packing_list` with the trip facts and the skill *name*. From there, **pure Python takes over.** It builds four separate lists:
 
 - **profile items** — every medication (unconditionally) plus every always-pack essential, read fresh from `profile.json`;
 - **weather items** — derived from the live forecast by a fixed mapping (`cold/freezing → warm insulated jacket`, rain → waterproof jacket, etc.) so the mapping cannot drift;
-- **skill items** — re-read directly from the chosen `SKILL.md`, *not* relayed by the model.
+- **skill items** — re-read directly from the chosen `SKILL.md`, *not* relayed by the model;
+- **base items** — a universal essentials catalog (toiletries, chargers, walking shoes…) plus a **quantity engine**, so a list is never bare-bones. Per-day items (tops, underwear, socks) are sized `min(days, 7)` with a "plan to do laundry" hint past the cap; bottoms and sleepwear get weather-driven labels (`shorts`/`pants`/`warm pants`, `pajamas`/`warm pajamas`). Each item carries a `quantity` the UI renders as `×N`.
 
-Then it merges them with `_merge_by_precedence`, which dedupes by a normalized label (lowercased, whitespace-collapsed) and keeps the **first** occurrence of each label. The elegant part: **precedence is encoded purely by order.** The caller passes the sources highest-to-lowest, and the merge keeps whoever it sees first. We chose **profile > weather > skill**:
+Then it merges them with `_merge_by_precedence`, which dedupes by a normalized label (lowercased, whitespace-collapsed) and keeps the **first** occurrence of each label. The elegant part: **precedence is encoded purely by order.** The caller passes the sources highest-to-lowest, and the merge keeps whoever it sees first. We chose **profile > weather > skill > base**:
 
 - **Profile first** means the medication/essential copy of any colliding label always wins — and because medications occupy the very first slot, a medication is *always* the first occurrence of its label and can therefore *never* be the copy a dedupe drops. **The meds-always guarantee is structural, not a hopeful append.**
 - **Weather second** means the real, trip-specific forecast beats the generic archetype baseline when both imply the same item.
-- **Skill last** fills in the rest.
+- **Skill third** fills in the trip-archetype specifics.
+- **Base last** is the generic floor: anything a higher source already owns (e.g. a profile `phone charger`) dedupes the generic base copy away, so the universal catalog fills gaps without ever overriding what is personal.
 
-Order is the only knob. There are no special cases, no synonym-guessing, nothing to reason about at runtime — which is exactly what you want for a function that must be trustworthy with someone's health data. Every output item also carries a `source ∈ {profile, weather, skill}` tag, so the agent's reasoning stays *legible* in the rendered list: you can see at a glance which items came from you, which from the sky, and which from the trip type.
+Order is the only knob. There are no special cases, no synonym-guessing, nothing to reason about at runtime — which is exactly what you want for a function that must be trustworthy with someone's health data. Every output item also carries a `source ∈ {profile, weather, skill, base}` tag, rendered as a colored badge, so the agent's reasoning stays *legible*: you can see at a glance which items came from you, which from the sky, which from the trip type, and which are universal basics. And when a live forecast can't be fetched, the list stays **honest** — a `forecast_ok=false` flag drives a "packed a neutral baseline" note rather than inventing temperatures.
 
 ## Privacy & security — the Concierge boundary
 
@@ -116,7 +118,8 @@ We followed one rule above all others: **keep it runnable end-to-end at all time
 - **Milestone A — the hardcoded spine.** Form → ADK agent → rendered list, everything faked, but built as the *real* architecture: the LLM function-calls a deterministic tool that is the source of truth. The "done" bar was simply: Generate shows a list containing the profile medication. Getting this thin slice working end-to-end first meant every later step was a swap, never a rewrite.
 - **Milestone B — real MCP weather.** We stubbed `get_weather`, wired the agent to it over MCP, *then* replaced the stub body with real Open-Meteo. The payoff moment: changing the destination changed the forecast, which changed the list.
 - **Milestone C — trip skills.** Two contrasting skills with on-demand loading and a deliberately simple selection rule (cold/freezing → cold_weather; hot/beach → beach), with purpose as a secondary hint.
-- **Milestone D — the merge.** We turned three concatenated lists into a real deduped merge with the structural meds-always guarantee described above.
+- **Milestone D — the merge.** We turned concatenated lists into a real deduped merge with the structural meds-always guarantee described above.
+- **The revamp — making it trustworthy and rich.** Demo feedback exposed three flaws, each fixed within scope. (1) *Wrong city:* "Bali" had been geocoding to a village near Kolkata, and a silent `except` was faking a neutral "12–20 °C, mild" forecast — so we added a disambiguating autocomplete that captures the exact coordinates, made `get_weather` use them directly, and replaced the silent fallback with an honest `forecast_ok` flag. (2) *Invisible personalization:* a read-only profile panel now shows your medication and always-pack items, so "it knows you" is visible. (3) *Bare-bones lists:* the base-essentials catalog and quantity engine turned a sparse list into a real, trip-sized one — promoting the merge from three sources to four.
 
 The most valuable engineering lessons were unglamorous. **Quota discipline:** the AI Studio free tier has a per-day request cap, and a single Generate makes ~3 model calls — a day of clicking exhausts it. We learned to verify deterministic logic with plain unit tests (no model calls) and spend our scarce live runs only on true end-to-end checks. We also hardened the failure paths this surfaced: the server now maps a 429 to a clean, honest message in the UI instead of failing opaquely, and an out-of-range forecast date falls back gracefully so a run never hard-crashes.
 

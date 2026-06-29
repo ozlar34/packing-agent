@@ -3,6 +3,46 @@
 > Newest entry on top. Read `docs/ADK_SETUP.md` (decisions + "Current build status")
 > alongside this. This file is the "where we stopped / what's next" layer.
 
+## 2026-06-29 (later) — REVAMP COMPLETE (Phases 1–5): geocoding fix · quantities · profile panel · docs · ship
+
+### What this session did (Phase 5 of `docs/REVAMP_PLAN.md` — the final verify+docs+ship phase)
+Phases 1–4 of the revamp were already built+committed (4 commits ahead of origin at session start:
+geo autocomplete, honest weather, base catalog/quantity engine, UI). This session executed **Phase 5**:
+- **Deterministic verify (no quota):** hot 4-day → `t-shirt ×4, shorts, underwear/socks ×4`; cold
+  9-day → caps at 7 + laundry hint, `long-sleeve top ×7, warm pants ×2`. No dup labels, med present
+  exactly once `source=profile`, `phone charger`/`passport` dedupe to profile (not base). `_trip_days`
+  edges correct (same-day=1).
+- **Weather path verify (keyless, no Gemini quota):** `forecast_ok` honest (True for real, False+no
+  temps for bogus lat/lon). NOTE: the `_geocode('Bali')` *fallback* still returns the Kolkata village
+  (22.6, 88.3) — **by design** the dropdown passes lat/lon so `get_weather` skips geocode. `/geocode?q=Bali`
+  returns "Bali, Indonesia" (pop 4.2M) as a clear candidate. Bug is dead via the dropdown path.
+- **2 LIVE `/generate` runs GREEN:** Bali Indonesia (−8.33,115.0) → `warm, 17–24C`, 33 items, med
+  persists, 4-source merge. Reykjavík (64.1,−21.9) → `cold, 6–12C`, long-sleeve ×7 / warm pants ×2 /
+  laundry hint. Contrast = the money moment.
+- **2 browser screenshots (Playwright vs live server, 0 console errors)** saved to
+  `docs/assets/demo-bali.png` + `docs/assets/demo-reykjavik.png` — embedded in README. Confirmed all
+  4 badges (Your essentials/Weather/Trip type/**Basics**), quantities `×N`, profile panel, honest
+  forecast line, laundry hint.
+- **Docs updated to match the revamp:** `README.md` (four-source merge + quantity engine, geocoding
+  disambiguation, honest forecast flag, profile panel, screenshots, money demo) and
+  `docs/KAGGLE_WRITEUP.md` (four-source merge section, revamp milestone — ~2,350 words, under 2,500).
+
+### Live-run nuance worth knowing for the video
+Open-Meteo's "Bali, Indonesia" centroid (−8.33, 115.0) lands in Bali's central **highlands**, so the
+honest forecast is `warm, 17–24C`, not tropical-coast `hot, 27–31C`. Still produces a coherent warm
+list (t-shirts/shorts). If a more obviously *hot* contrast is wanted for the video, pick a coastal hot
+city (e.g. Dubai, Phuket town) — Oguz's call, not changed here.
+
+### Pick up from here — only EXTERNAL deliverables remain (no code/docs left)
+1. **Commit + push** this session's work (docs + screenshots) — see below; then `main` is clean & current.
+2. **Record YouTube video ≤5 min** (Oguz). Enable billing on the AI Studio key first to kill the
+   free-tier daily cap mid-recording (~20 calls/model/day).
+3. **Submit on Kaggle** (Oguz): project link + Writeup, Concierge track, **merge team**, **Submit (not Save)**
+   before July 6 2026 23:59 PT.
+4. **Optional bonus:** Cloud Run deploy (deferred — needs interactive gcloud auth + billing).
+
+---
+
 ## 2026-06-29 — UI redesign shipped + committed + pushed + LIVE verify GREEN
 
 ### Done this session (commits `1debaaa` + `d5ae612`, **both pushed**; `main` in sync with origin)
